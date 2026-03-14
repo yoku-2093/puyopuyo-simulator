@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug puyopuyo-simulator",
+      "cargo": {
+        "args": ["build", "--bin=puyopuyo-simulator"]
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "env": {},
+      "sourceLanguages": ["rust"]
+    }
+  ]
+}
