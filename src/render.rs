@@ -25,11 +25,11 @@ impl Renderer {
 
     pub async fn new() -> Self {
         let colors = [
-            (PuyoColor::Blue, "assets/puyo/blue.png"),
-            (PuyoColor::Green, "assets/puyo/green.png"),
-            (PuyoColor::Red, "assets/puyo/red.png"),
-            (PuyoColor::Yellow, "assets/puyo/yellow.png"),
-            (PuyoColor::Purple, "assets/puyo/purple.png"),
+            (PuyoColor::Blue, "assets/images/puyo/blue.png"),
+            (PuyoColor::Green, "assets/images/puyo/green.png"),
+            (PuyoColor::Red, "assets/images/puyo/red.png"),
+            (PuyoColor::Yellow, "assets/images/puyo/yellow.png"),
+            (PuyoColor::Purple, "assets/images/puyo/purple.png"),
         ];
 
         let mut textures = HashMap::new();
@@ -39,11 +39,11 @@ impl Renderer {
             textures.insert(color, texture);
         }
 
-        let background = load_texture("assets/background/window.png").await.unwrap();
-        let field_bg = load_texture("assets/background/field_bg.png")
+        let background = load_texture("assets/images/background/window.png").await.unwrap();
+        let field_bg = load_texture("assets/images/background/field_bg.png")
             .await
             .unwrap();
-        let field = load_texture("assets/background/field.png").await.unwrap();
+        let field = load_texture("assets/images/background/field.png").await.unwrap();
 
         Renderer {
             textures,
