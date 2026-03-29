@@ -36,6 +36,7 @@ pub struct Game {
     next_tsumo: KumiPuyo,
     next_next_tsumo: KumiPuyo,
     last_drop_time: f64,
+    last_move_time: f64,
     field: [[Option<PuyoColor>; COLS]; TOTAL_ROWS],
 }
 
@@ -47,6 +48,7 @@ impl Game {
             next_tsumo: KumiPuyo::new(),
             next_next_tsumo: KumiPuyo::new(),
             last_drop_time: get_time(),
+            last_move_time: 0.0,
             field: [[None; COLS]; TOTAL_ROWS],
         }
     }
@@ -62,15 +64,25 @@ impl Game {
             self.last_drop_time = now;
         }
 
-        // 方向キーの入力を処理
-        if is_key_down(KeyCode::Left) {
-            self.move_left();
+        // 方向キーの入力を処理（リピート間隔 0.1秒）
+        let move_interval = 0.1;
+        if is_key_down(KeyCode::Left) || is_key_down(KeyCode::Right) || is_key_down(KeyCode::Down) {
+            if now - self.last_move_time > move_interval {
+                if is_key_down(KeyCode::Left) {
+                    self.move_left();
+                }
+                if is_key_down(KeyCode::Right) {
+                    self.move_right();
+                }
+                if is_key_down(KeyCode::Down) {
+                    self.move_down();
+                }
+                self.last_move_time = now;
+            }
         }
-        if is_key_down(KeyCode::Right) {
-            self.move_right();
-        }
-        if is_key_down(KeyCode::Down) {
-            self.move_down();
+        if is_key_pressed(KeyCode::Escape) {
+            *self = Game::new();
+            return;
         }
         if is_key_pressed(KeyCode::X) {
             self.rotate(Rotation::Right);
@@ -106,21 +118,23 @@ impl Game {
             .collect()
     }
 
-    /// 移動後の軸と子の両方が範囲内か判定
+    /// 移動後の軸と子の両方が範囲内かつ空きマスか判定
     fn can_move(&self, dc: isize, dr: isize) -> bool {
         let (child_dc, child_dr) = self.child_offset();
         let new_col = self.position.col as isize + dc;
         let new_row = self.position.row as isize + dr;
         let new_child_col = new_col + child_dc;
         let new_child_row = new_row + child_dr;
-        new_col >= 0
-            && new_col < COLS as isize
-            && new_row >= 0
-            && new_row < TOTAL_ROWS as isize
-            && new_child_col >= 0
-            && new_child_col < COLS as isize
-            && new_child_row >= 0
-            && new_child_row < TOTAL_ROWS as isize
+        self.is_empty(new_col, new_row) && self.is_empty(new_child_col, new_child_row)
+    }
+
+    /// 指定座標が範囲内かつ空きマスか判定
+    fn is_empty(&self, col: isize, row: isize) -> bool {
+        col >= 0
+            && col < COLS as isize
+            && row >= 0
+            && row < TOTAL_ROWS as isize
+            && self.field[row as usize][col as usize].is_none()
     }
 
     fn move_left(&mut self) {
