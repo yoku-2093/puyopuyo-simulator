@@ -14,7 +14,11 @@ pub struct Position {
 impl Position {
     fn new(col: usize, row: usize) -> Self {
         assert!(col < COLS, "col out of range: {}", col);
-        assert!(row >= GHOST_ROWS && row < TOTAL_ROWS, "row out of range: {}", row);
+        assert!(
+            row >= GHOST_ROWS && row < TOTAL_ROWS,
+            "row out of range: {}",
+            row
+        );
         Position { col, row }
     }
 
@@ -23,26 +27,6 @@ impl Position {
     }
     pub fn row(&self) -> usize {
         self.row
-    }
-    fn move_left(&mut self) {
-        if self.col > 0 {
-            self.col -= 1;
-        }
-    }
-
-    fn move_right(&mut self) {
-        if self.col + 1 < COLS {
-            self.col += 1;
-        }
-    }
-
-    fn move_down(&mut self) -> bool {
-        if self.row + 1 < TOTAL_ROWS {
-            self.row += 1;
-            true
-        } else {
-            false // これ以上下がれない
-        }
     }
 }
 
@@ -72,21 +56,21 @@ impl Game {
 
         // 0.5秒ごとに自動落下
         if now - self.last_drop_time > 0.5 {
-            if !self.position.move_down() {
+            if !self.move_down() {
                 self.ground(); // 着地 → 固定
             }
             self.last_drop_time = now;
         }
 
-        // 方向キーの入力を���理
+        // 方向キーの入力を処理
         if is_key_down(KeyCode::Left) {
-            self.position.move_left();
+            self.move_left();
         }
         if is_key_down(KeyCode::Right) {
-            self.position.move_right();
+            self.move_right();
         }
         if is_key_down(KeyCode::Down) {
-            self.position.move_down();
+            self.move_down();
         }
         if is_key_pressed(KeyCode::X) {
             self.rotate(Rotation::Right);
@@ -107,10 +91,57 @@ impl Game {
             (self.tsumo.axis_color(), self.position),
             (self.tsumo.child_color(), self.child_position()),
         ];
-        puyos.into_iter()
+        puyos
+            .into_iter()
             .filter(|(_, pos)| pos.row >= GHOST_ROWS)
-            .map(|(color, pos)| (color, Position { col: pos.col, row: pos.row - GHOST_ROWS }))
+            .map(|(color, pos)| {
+                (
+                    color,
+                    Position {
+                        col: pos.col,
+                        row: pos.row - GHOST_ROWS,
+                    },
+                )
+            })
             .collect()
+    }
+
+    /// 移動後の軸と子の両方が範囲内か判定
+    fn can_move(&self, dc: isize, dr: isize) -> bool {
+        let (child_dc, child_dr) = self.child_offset();
+        let new_col = self.position.col as isize + dc;
+        let new_row = self.position.row as isize + dr;
+        let new_child_col = new_col + child_dc;
+        let new_child_row = new_row + child_dr;
+        new_col >= 0
+            && new_col < COLS as isize
+            && new_row >= 0
+            && new_row < TOTAL_ROWS as isize
+            && new_child_col >= 0
+            && new_child_col < COLS as isize
+            && new_child_row >= 0
+            && new_child_row < TOTAL_ROWS as isize
+    }
+
+    fn move_left(&mut self) {
+        if self.can_move(-1, 0) {
+            self.position.col -= 1;
+        }
+    }
+
+    fn move_right(&mut self) {
+        if self.can_move(1, 0) {
+            self.position.col += 1;
+        }
+    }
+
+    fn move_down(&mut self) -> bool {
+        if self.can_move(0, 1) {
+            self.position.row += 1;
+            true
+        } else {
+            false
+        }
     }
 
     fn rotate(&mut self, rotation: Rotation) {
@@ -129,12 +160,13 @@ impl Game {
         }
     }
 
+    /// 軸ぷよに対する子ぷよの相対位置 (列差, 行差) を返す
     fn child_offset(&self) -> (isize, isize) {
         match self.tsumo.orientation() {
-            Orientation::Up    => ( 0, -1),
-            Orientation::Right => ( 1,  0),
-            Orientation::Down  => ( 0,  1),
-            Orientation::Left  => (-1,  0),
+            Orientation::Up => (0, -1),
+            Orientation::Right => (1, 0),
+            Orientation::Down => (0, 1),
+            Orientation::Left => (-1, 0),
         }
     }
 
