@@ -8,3 +8,7 @@ pub const PUYO_SIZE: f32 = 60.0;
 // フィールドの列数・行数
 pub const COLS: usize = 6;
 pub const ROWS: usize = 12;
+
+// フィールド左上のピクセル座標（ウィンドウ中央に配置）
+pub const FIELD_X: f32 = (WINDOW_WIDTH - PUYO_SIZE * COLS as f32) / 2.0;
+pub const FIELD_Y: f32 = (WINDOW_HEIGHT - PUYO_SIZE * ROWS as f32) / 2.0;

@@ -1,4 +1,6 @@
 mod constants;
+mod game;
+mod puyo;
 mod render;
 
 use constants::*;
@@ -7,25 +9,30 @@ use macroquad::prelude::*;
 #[macroquad::main(window_conf)]
 async fn main() {
     let renderer = render::Renderer::new().await;
+    let mut game = game::Game::new();
 
     loop {
-        renderer.draw_background();
-
+        clear_background(BLACK);
         draw_text("Hello, PuyoPuyo Simulator!", 20.0, 20.0, 30.0, BLACK);
-
+        renderer.draw_background();
         renderer.draw_field();
-        renderer.draw_puyo(render::PuyoColor::Blue, 0, 0);
-        renderer.draw_puyo(render::PuyoColor::Blue, 1, 0);
-        renderer.draw_puyo(render::PuyoColor::Blue, 2, 0);
-        renderer.draw_puyo(render::PuyoColor::Blue, 3, 0);
-        renderer.draw_puyo(render::PuyoColor::Blue, 4, 0);
-        renderer.draw_puyo(render::PuyoColor::Blue, 5, 0);
-        renderer.draw_puyo(render::PuyoColor::Blue, 0, 11);
-        renderer.draw_puyo(render::PuyoColor::Blue, 1, 11);
-        renderer.draw_puyo(render::PuyoColor::Blue, 2, 11);
-        renderer.draw_puyo(render::PuyoColor::Blue, 3, 11);
-        renderer.draw_puyo(render::PuyoColor::Blue, 4, 11);
-        renderer.draw_puyo(render::PuyoColor::Blue, 5, 11);
+
+        game.update();
+
+        // 積まれたぷよ
+        let field = game.field();
+        for row in 0..ROWS {
+            for col in 0..COLS {
+                if let Some(color) = field[row][col] {
+                    renderer.draw_puyo(color, col, row);
+                }
+            }
+        }
+
+        // 落下中のぷよ
+        for (color, pos) in game.falling() {
+            renderer.draw_puyo(color, pos.col(), pos.row());
+        }
 
         next_frame().await;
     }
