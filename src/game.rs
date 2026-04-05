@@ -1,6 +1,5 @@
 use crate::constants::*;
 use crate::puyo::*;
-use macroquad::prelude::*;
 
 const GHOST_ROWS: usize = 1;
 const TOTAL_ROWS: usize = ROWS + GHOST_ROWS;
@@ -30,66 +29,32 @@ impl Position {
     }
 }
 
-pub struct Game {
+pub struct GameField {
     tsumo: KumiPuyo,
     position: Position,
     next_tsumo: KumiPuyo,
     next_next_tsumo: KumiPuyo,
-    last_drop_time: f64,
-    last_move_time: f64,
     field: [[Option<PuyoColor>; COLS]; TOTAL_ROWS],
 }
 
-impl Game {
+impl GameField {
     pub fn new() -> Self {
-        Game {
+        GameField {
             tsumo: KumiPuyo::new(),
             position: Position::new(2, GHOST_ROWS),
             next_tsumo: KumiPuyo::new(),
             next_next_tsumo: KumiPuyo::new(),
-            last_drop_time: get_time(),
-            last_move_time: 0.0,
             field: [[None; COLS]; TOTAL_ROWS],
         }
     }
 
-    pub fn update(&mut self) {
-        let now = get_time();
-
-        // 0.5秒ごとに自動落下
-        if now - self.last_drop_time > 0.5 {
-            if !self.move_down() {
-                self.ground(); // 着地 → 固定
-            }
-            self.last_drop_time = now;
+    /// 自動落下を実行。着地したら true を返す
+    pub fn tick(&mut self) -> bool {
+        if !self.move_down() {
+            self.ground();
+            return true;
         }
-
-        // 方向キーの入力を処理（リピート間隔 0.1秒）
-        let move_interval = 0.1;
-        if is_key_down(KeyCode::Left) || is_key_down(KeyCode::Right) || is_key_down(KeyCode::Down) {
-            if now - self.last_move_time > move_interval {
-                if is_key_down(KeyCode::Left) {
-                    self.move_left();
-                }
-                if is_key_down(KeyCode::Right) {
-                    self.move_right();
-                }
-                if is_key_down(KeyCode::Down) {
-                    self.move_down();
-                }
-                self.last_move_time = now;
-            }
-        }
-        if is_key_pressed(KeyCode::Escape) {
-            *self = Game::new();
-            return;
-        }
-        if is_key_pressed(KeyCode::X) {
-            self.rotate(Rotation::Right);
-        }
-        if is_key_pressed(KeyCode::Z) {
-            self.rotate(Rotation::Left);
-        }
+        false
     }
 
     /// 幽霊行を除いた見える部分のフィールドを返す
@@ -137,19 +102,19 @@ impl Game {
             && self.field[row as usize][col as usize].is_none()
     }
 
-    fn move_left(&mut self) {
+    pub fn move_left(&mut self) {
         if self.can_move(-1, 0) {
             self.position.col -= 1;
         }
     }
 
-    fn move_right(&mut self) {
+    pub fn move_right(&mut self) {
         if self.can_move(1, 0) {
             self.position.col += 1;
         }
     }
 
-    fn move_down(&mut self) -> bool {
+    pub fn move_down(&mut self) -> bool {
         if self.can_move(0, 1) {
             self.position.row += 1;
             true
@@ -158,7 +123,7 @@ impl Game {
         }
     }
 
-    fn rotate(&mut self, rotation: Rotation) {
+    pub fn rotate(&mut self, rotation: Rotation) {
         self.tsumo.rotate(rotation);
         let (dc, dr) = self.child_offset();
         let child_col = self.position.col as isize + dc;
@@ -204,5 +169,17 @@ impl Game {
         self.next_tsumo = self.next_next_tsumo;
         self.next_next_tsumo = KumiPuyo::new();
         self.position = Position::new(2, GHOST_ROWS);
+    }
+}
+
+pub enum GamePhase {
+    Start,
+    Playing(GameField),
+    GameOver(GameField),
+}
+
+impl GamePhase {
+    pub fn new() -> Self {
+        GamePhase::Start
     }
 }
