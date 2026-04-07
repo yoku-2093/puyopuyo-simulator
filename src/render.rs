@@ -8,6 +8,8 @@ pub struct Renderer {
     background: Texture2D,
     field_bg: Texture2D,
     field: Texture2D,
+    font: Font,
+    game_over_text: Texture2D,
 }
 
 impl Renderer {
@@ -37,11 +39,22 @@ impl Renderer {
             .await
             .unwrap();
 
+        let font = load_ttf_font("assets/fonts/Hiragino_Sans_W6.ttf")
+            .await
+            .unwrap();
+
+        let game_over_text = load_texture("assets/images/game_over.png")
+            .await
+            .unwrap();
+        game_over_text.set_filter(FilterMode::Linear);
+
         Renderer {
             textures,
             background,
             field_bg,
             field,
+            font,
+            game_over_text,
         }
     }
 
@@ -95,26 +108,37 @@ impl Renderer {
     }
 
     /// フィールド中央にテキストを描画するヘルパー
-    fn draw_centered_text(&self, text: &str, font_size: f32, color: Color) {
+    fn draw_centered_text(&self, text: &str, font_size: f32, color: Color, y_offset: f32) {
         let field_w = PUYO_SIZE * COLS as f32;
         let field_h = PUYO_SIZE * ROWS as f32;
         let center_x = FIELD_X + field_w / 2.0;
-        let center_y = FIELD_Y + field_h / 2.0;
+        let center_y = FIELD_Y + field_h / 2.0 + y_offset;
 
-        let dimensions = measure_text(text, None, font_size as u16, 1.0);
-        draw_text(
+        let params = TextParams {
+            font: Some(&self.font),
+            font_size: font_size as u16,
+            color,
+            ..Default::default()
+        };
+        let dimensions = measure_text(text, Some(&self.font), font_size as u16, 1.0);
+        draw_text_ex(
             text,
             center_x - dimensions.width / 2.0,
             center_y + dimensions.height / 2.0,
-            font_size,
-            color,
+            params,
         );
     }
 
     /// スタート画面の描画
     pub fn draw_press_start(&self) {
-        let alpha = ((get_time() * 3.0).sin() * 0.5 + 0.5) as f32;
-        self.draw_centered_text("PRESS ENTER or SPACE", 36.0, Color::new(1.0, 1.0, 0.0, alpha));
+        let t = ((get_time() * 0.7 % 1.0) as f32 * 2.0 - 1.0).abs();
+        let alpha = 0.4 + 0.6 * t * t * (3.0 - 2.0 * t);
+        self.draw_centered_text(
+            "PRESS ENTER or SPACE",
+            24.0,
+            Color::new(1.0, 1.0, 0.0, alpha),
+            0.0,
+        );
     }
 
     /// ゲームオーバー画面の描画
@@ -129,8 +153,31 @@ impl Renderer {
             field_h,
             Color::new(0.0, 0.0, 0.0, 0.6),
         );
-        let alpha = ((get_time() * 3.0).sin() * 0.5 + 0.5) as f32;
-        self.draw_centered_text("ばたんきゅ〜", 40.0, Color::new(1.0, 0.3, 0.3, alpha));
+        // テクスチャをスケールアニメーションで描画
+        let t = ((get_time() * 1.5).sin() * 0.5 + 0.5) as f32;
+        let scale = 0.45 + 0.1 * t; // 0.45〜0.55
+        let tex_w = self.game_over_text.width() * scale;
+        let tex_h = self.game_over_text.height() * scale;
+        let field_w2 = PUYO_SIZE * COLS as f32;
+        let field_h2 = PUYO_SIZE * ROWS as f32;
+        let cx = FIELD_X + field_w2 / 2.0 - tex_w / 2.0;
+        let cy = FIELD_Y + field_h2 / 2.0 - tex_h / 2.0;
+        draw_texture_ex(
+            &self.game_over_text,
+            cx,
+            cy,
+            Color::new(0.0, 0.2, 1.0, 1.0),
+            DrawTextureParams {
+                dest_size: Some(Vec2::new(tex_w, tex_h)),
+                ..Default::default()
+            },
+        );
+        self.draw_centered_text(
+            "Press ESC to return",
+            16.0,
+            Color::new(1.0, 1.0, 1.0, 0.8),
+            80.0,
+        );
     }
 
     pub fn draw_puyo(&self, color: PuyoColor, col: usize, row: usize) {

@@ -2,6 +2,7 @@ use crate::constants::*;
 use crate::puyo::*;
 
 const GHOST_ROWS: usize = 1;
+const INITIAL_POSITION: Position = Position::new(2, GHOST_ROWS);
 const TOTAL_ROWS: usize = ROWS + GHOST_ROWS;
 
 #[derive(Clone, Copy)]
@@ -11,13 +12,9 @@ pub struct Position {
 }
 
 impl Position {
-    fn new(col: usize, row: usize) -> Self {
-        assert!(col < COLS, "col out of range: {}", col);
-        assert!(
-            row >= GHOST_ROWS && row < TOTAL_ROWS,
-            "row out of range: {}",
-            row
-        );
+    const fn new(col: usize, row: usize) -> Self {
+        assert!(col < COLS, "col out of range");
+        assert!(row < TOTAL_ROWS, "row out of range");
         Position { col, row }
     }
 
@@ -30,31 +27,34 @@ impl Position {
 }
 
 pub struct GameField {
-    tsumo: KumiPuyo,
-    position: Position,
-    next_tsumo: KumiPuyo,
-    next_next_tsumo: KumiPuyo,
-    field: [[Option<PuyoColor>; COLS]; TOTAL_ROWS],
+    tsumo: KumiPuyo,                                // 落下中の組ぷよ
+    position: Position,                             // 軸ぷよの位置
+    next_tsumo: KumiPuyo,                           // 次の組ぷよ
+    next_next_tsumo: KumiPuyo,                      // 次の次の組ぷよ
+    field: [[Option<PuyoColor>; COLS]; TOTAL_ROWS], // フィールド（幽霊行を含む）
 }
 
 impl GameField {
     pub fn new() -> Self {
         GameField {
             tsumo: KumiPuyo::new(),
-            position: Position::new(2, GHOST_ROWS),
+            position: INITIAL_POSITION,
             next_tsumo: KumiPuyo::new(),
             next_next_tsumo: KumiPuyo::new(),
             field: [[None; COLS]; TOTAL_ROWS],
         }
     }
 
-    /// 自動落下を実行。着地したら true を返す
-    pub fn tick(&mut self) -> bool {
+    /// 自動落下を実行
+    pub fn tick(&mut self) -> TickResult {
         if !self.move_down() {
-            self.ground();
-            return true;
+            self.settle();
+            if self.is_game_over() {
+                return TickResult::GameOver;
+            }
+            return TickResult::Settled;
         }
-        false
+        TickResult::Falling
     }
 
     /// 幽霊行を除いた見える部分のフィールドを返す
@@ -71,15 +71,7 @@ impl GameField {
         puyos
             .into_iter()
             .filter(|(_, pos)| pos.row >= GHOST_ROWS)
-            .map(|(color, pos)| {
-                (
-                    color,
-                    Position {
-                        col: pos.col,
-                        row: pos.row - GHOST_ROWS,
-                    },
-                )
-            })
+            .map(|(color, pos)| (color, Position::new(pos.col, pos.row - GHOST_ROWS)))
             .collect()
     }
 
@@ -157,7 +149,7 @@ impl GameField {
         }
     }
 
-    fn ground(&mut self) {
+    fn settle(&mut self) {
         // フィールドに固定
         let axis_pos = self.position;
         let child_pos = self.child_position();
@@ -168,8 +160,19 @@ impl GameField {
         self.tsumo = self.next_tsumo;
         self.next_tsumo = self.next_next_tsumo;
         self.next_next_tsumo = KumiPuyo::new();
-        self.position = Position::new(2, GHOST_ROWS);
+        self.position = INITIAL_POSITION;
     }
+
+    fn is_game_over(&self) -> bool {
+        self.field[INITIAL_POSITION.row][INITIAL_POSITION.col].is_some()
+    }
+}
+
+#[derive(PartialEq)]
+pub enum TickResult {
+    Falling,
+    Settled,
+    GameOver,
 }
 
 pub enum GamePhase {

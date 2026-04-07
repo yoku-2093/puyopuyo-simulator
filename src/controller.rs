@@ -1,5 +1,5 @@
 use crate::constants::*;
-use crate::game::*;
+use crate::game::{GameField, GamePhase, TickResult};
 use crate::puyo::Rotation;
 use crate::render::Renderer;
 use macroquad::prelude::*;
@@ -40,7 +40,11 @@ impl Controller {
 
                 // 自動落下
                 if now - self.last_drop_time > DROP_INTERVAL {
-                    field.tick();
+                    let result = field.tick();
+                    if result == TickResult::GameOver {
+                        self.phase = GamePhase::GameOver(GameField::new());
+                        return;
+                    }
                     self.last_drop_time = now;
                 }
 
@@ -92,6 +96,9 @@ impl Controller {
             }
             GamePhase::GameOver(_field) => {
                 self.renderer.draw_game_over();
+                if is_key_pressed(KeyCode::Escape) {
+                    self.phase = GamePhase::Start;
+                }
             }
         }
     }

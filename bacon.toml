@@ -1,0 +1,5 @@
+[jobs.run]
+command = ["cargo", "run"]
+need_stdout = true
+allow_warnings = true
+on_success = "back"       # 成功後もファイル変更で再実行
