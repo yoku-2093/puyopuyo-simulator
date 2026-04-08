@@ -14,7 +14,7 @@ struct Puyo {
     color: PuyoColor,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Orientation {
     Up,    // 子が軸の上
     Right, // 子が軸の右
@@ -30,7 +30,17 @@ impl Orientation {
         Orientation::Left,
     ];
 
-    fn rotate(self, rotation: Rotation) -> Self {
+    /// 軸ぷよに対する子ぷよの相対位置 (列差, 行差)
+    pub fn offset(self) -> (isize, isize) {
+        match self {
+            Orientation::Up => (0, -1),
+            Orientation::Right => (1, 0),
+            Orientation::Down => (0, 1),
+            Orientation::Left => (-1, 0),
+        }
+    }
+
+    pub fn rotate(self, rotation: Rotation) -> Self {
         let i = self as usize;
         let offset = match rotation {
             Rotation::Right => 1,
@@ -40,7 +50,7 @@ impl Orientation {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Rotation {
     Right,
     Left,
@@ -83,7 +93,7 @@ impl KumiPuyo {
         self.orientation
     }
 
-    pub fn rotate(&mut self, rotation: Rotation) {
-        self.orientation = self.orientation.rotate(rotation);
+    pub fn set_orientation(&mut self, orientation: Orientation) {
+        self.orientation = orientation;
     }
 }

@@ -32,6 +32,7 @@ pub struct GameField {
     next_tsumo: KumiPuyo,                           // 次の組ぷよ
     next_next_tsumo: KumiPuyo,                      // 次の次の組ぷよ
     field: [[Option<PuyoColor>; COLS]; TOTAL_ROWS], // フィールド（幽霊行を含む）
+    last_failed_rotation: Option<(Rotation, f64)>,  // クイックターン判定用
 }
 
 impl GameField {
@@ -42,6 +43,7 @@ impl GameField {
             next_tsumo: KumiPuyo::new(),
             next_next_tsumo: KumiPuyo::new(),
             field: [[None; COLS]; TOTAL_ROWS],
+            last_failed_rotation: None,
         }
     }
 
@@ -77,7 +79,7 @@ impl GameField {
 
     /// 移動後の軸と子の両方が範囲内かつ空きマスか判定
     fn can_move(&self, dc: isize, dr: isize) -> bool {
-        let (child_dc, child_dr) = self.child_offset();
+        let (child_dc, child_dr) = self.tsumo.orientation().offset();
         let new_col = self.position.col as isize + dc;
         let new_row = self.position.row as isize + dr;
         let new_child_col = new_col + child_dc;
@@ -116,37 +118,48 @@ impl GameField {
     }
 
     pub fn rotate(&mut self, rotation: Rotation) {
-        self.tsumo.rotate(rotation);
-        let (dc, dr) = self.child_offset();
-        let child_col = self.position.col as isize + dc;
-        let child_row = self.position.row as isize + dr;
-        // 壁キック：子ぷよがはみ出したら軸ぷよを反対にずらす
-        if child_col < 0 {
-            self.position.col += 1;
-        } else if child_col >= COLS as isize {
-            self.position.col -= 1;
-        }
-        if child_row >= TOTAL_ROWS as isize {
-            self.position.row -= 1;
-        }
-    }
+        let now = macroquad::time::get_time();
+        let is_quick = matches!(
+            self.last_failed_rotation,
+            Some((r, t)) if r == rotation && now - t < QUICK_TURN_WINDOW
+        );
 
-    /// 軸ぷよに対する子ぷよの相対位置 (列差, 行差) を返す
-    fn child_offset(&self) -> (isize, isize) {
-        match self.tsumo.orientation() {
-            Orientation::Up => (0, -1),
-            Orientation::Right => (1, 0),
-            Orientation::Down => (0, 1),
-            Orientation::Left => (-1, 0),
+        let target_ori = if is_quick {
+            self.tsumo.orientation().rotate(rotation).rotate(rotation)
+        } else {
+            self.tsumo.orientation().rotate(rotation)
+        };
+        let (dc, dr) = target_ori.offset();
+        let col = self.position.col as isize;
+        let row = self.position.row as isize;
+        let cc = col + dc;
+        let cr = row + dr;
+        let kc = col - dc;
+        let kr = row - dr;
+
+        // 子ぷよの先もキック先も埋まっている → 失敗
+        if !self.is_empty(cc, cr) && !self.is_empty(kc, kr) {
+            if !is_quick {
+                self.last_failed_rotation = Some((rotation, now));
+            }
+            return;
         }
+
+        // キックが必要なら軸をずらす
+        if !self.is_empty(cc, cr) {
+            self.position.col = kc as usize;
+            self.position.row = kr as usize;
+        }
+        self.tsumo.set_orientation(target_ori);
+        self.last_failed_rotation = None;
     }
 
     fn child_position(&self) -> Position {
-        let (dc, dr) = self.child_offset();
-        Position {
-            col: (self.position.col as isize + dc) as usize,
-            row: (self.position.row as isize + dr) as usize,
-        }
+        let (dc, dr) = self.tsumo.orientation().offset();
+        Position::new(
+            (self.position.col as isize + dc) as usize,
+            (self.position.row as isize + dr) as usize,
+        )
     }
 
     fn settle(&mut self) {
