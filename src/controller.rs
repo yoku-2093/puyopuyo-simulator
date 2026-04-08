@@ -48,7 +48,7 @@ impl Controller {
                     self.last_drop_time = now;
                 }
 
-                // 方向キー（リピート間隔 0.1秒）
+                // 方向キー
                 if is_key_down(KeyCode::Left)
                     || is_key_down(KeyCode::Right)
                     || is_key_down(KeyCode::Down)
