@@ -4,7 +4,7 @@ use macroquad::prelude::*;
 use std::collections::HashMap;
 
 pub struct Renderer {
-    textures: HashMap<PuyoColor, Texture2D>,
+    textures: HashMap<Puyo, Texture2D>,
     background: Texture2D,
     field_bg: Texture2D,
     field: Texture2D,
@@ -14,19 +14,19 @@ pub struct Renderer {
 
 impl Renderer {
     pub async fn new() -> Self {
-        let colors = [
-            (PuyoColor::Blue, "assets/images/puyo/blue.png"),
-            (PuyoColor::Green, "assets/images/puyo/green.png"),
-            (PuyoColor::Red, "assets/images/puyo/red.png"),
-            (PuyoColor::Yellow, "assets/images/puyo/yellow.png"),
-            (PuyoColor::Purple, "assets/images/puyo/purple.png"),
+        let puyos = [
+            (Puyo::Blue, "assets/images/puyo/blue.png"),
+            (Puyo::Green, "assets/images/puyo/green.png"),
+            (Puyo::Red, "assets/images/puyo/red.png"),
+            (Puyo::Yellow, "assets/images/puyo/yellow.png"),
+            (Puyo::Purple, "assets/images/puyo/purple.png"),
         ];
 
         let mut textures = HashMap::new();
-        for (color, path) in colors {
+        for (puyo, path) in puyos {
             let texture = load_texture(path).await.unwrap();
             texture.set_filter(FilterMode::Nearest);
-            textures.insert(color, texture);
+            textures.insert(puyo, texture);
         }
 
         let background = load_texture("assets/images/background/window.png")
@@ -43,9 +43,7 @@ impl Renderer {
             .await
             .unwrap();
 
-        let game_over_text = load_texture("assets/images/game_over.png")
-            .await
-            .unwrap();
+        let game_over_text = load_texture("assets/images/game_over.png").await.unwrap();
         game_over_text.set_filter(FilterMode::Linear);
 
         Renderer {
@@ -180,11 +178,11 @@ impl Renderer {
         );
     }
 
-    pub fn draw_puyo(&self, color: PuyoColor, col: usize, row: usize) {
+    pub fn draw_puyo(&self, puyo: Puyo, col: usize, row: usize) {
         assert!(col < COLS, "col out of range: {} (max {})", col, COLS - 1);
         assert!(row < ROWS, "row out of range: {} (max {})", row, ROWS - 1);
         draw_texture_ex(
-            &self.textures[&color],
+            &self.textures[&puyo],
             FIELD_X + col as f32 * PUYO_SIZE,
             FIELD_Y + row as f32 * PUYO_SIZE,
             WHITE,

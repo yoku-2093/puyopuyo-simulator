@@ -1,17 +1,12 @@
 use macroquad::rand;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PuyoColor {
+pub enum Puyo {
     Red,
     Blue,
     Green,
     Yellow,
     Purple,
-}
-
-#[derive(Clone, Copy)]
-struct Puyo {
-    color: PuyoColor,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -57,34 +52,34 @@ pub enum Rotation {
 }
 
 #[derive(Clone, Copy)]
-pub struct KumiPuyo {
+pub struct PuyoPuyo {
     axis: Puyo,
     child: Puyo,
     orientation: Orientation,
 }
 
-impl KumiPuyo {
-    pub fn axis_color(&self) -> PuyoColor {
-        self.axis.color
+impl PuyoPuyo {
+    pub fn axis(&self) -> Puyo {
+        self.axis
     }
 
-    pub fn child_color(&self) -> PuyoColor {
-        self.child.color
+    pub fn child(&self) -> Puyo {
+        self.child
     }
 
     pub fn new() -> Self {
-        let colors = [
-            PuyoColor::Red,
-            PuyoColor::Blue,
-            PuyoColor::Green,
-            PuyoColor::Yellow,
-            PuyoColor::Purple,
+        let puyos = [
+            Puyo::Red,
+            Puyo::Blue,
+            Puyo::Green,
+            Puyo::Yellow,
+            Puyo::Purple,
         ];
-        let axis_color = colors[rand::gen_range(0, colors.len())];
-        let child_color = colors[rand::gen_range(0, colors.len())];
-        KumiPuyo {
-            axis: Puyo { color: axis_color },
-            child: Puyo { color: child_color },
+        let axis = puyos[rand::gen_range(0, puyos.len())];
+        let child = puyos[rand::gen_range(0, puyos.len())];
+        PuyoPuyo {
+            axis,
+            child,
             orientation: Orientation::Up,
         }
     }

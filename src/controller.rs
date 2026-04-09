@@ -85,13 +85,13 @@ impl Controller {
                 let cells = field.field();
                 for row in 0..ROWS {
                     for col in 0..COLS {
-                        if let Some(color) = cells[row][col] {
-                            self.renderer.draw_puyo(color, col, row);
+                        if let Some(puyo) = cells[row][col] {
+                            self.renderer.draw_puyo(puyo, col, row);
                         }
                     }
                 }
-                for (color, pos) in field.falling() {
-                    self.renderer.draw_puyo(color, pos.col(), pos.row());
+                for (puyo, pos) in field.falling() {
+                    self.renderer.draw_puyo(puyo, pos.col(), pos.row());
                 }
             }
             GamePhase::GameOver(_field) => {

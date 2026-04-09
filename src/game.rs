@@ -27,21 +27,21 @@ impl Position {
 }
 
 pub struct GameField {
-    tsumo: KumiPuyo,                                // 落下中の組ぷよ
-    position: Position,                             // 軸ぷよの位置
-    next_tsumo: KumiPuyo,                           // 次の組ぷよ
-    next_next_tsumo: KumiPuyo,                      // 次の次の組ぷよ
-    field: [[Option<PuyoColor>; COLS]; TOTAL_ROWS], // フィールド（幽霊行を含む）
-    last_failed_rotation: Option<(Rotation, f64)>,  // クイックターン判定用
+    puyo: PuyoPuyo,                                // 落下中のぷよ
+    position: Position,                            // 軸ぷよの位置
+    next: PuyoPuyo,                                // 次のぷよ
+    next_next: PuyoPuyo,                           // 次の次のぷよ
+    field: [[Option<Puyo>; COLS]; TOTAL_ROWS],     // フィールド（幽霊行を含む）
+    last_failed_rotation: Option<(Rotation, f64)>, // クイックターン判定用
 }
 
 impl GameField {
     pub fn new() -> Self {
         GameField {
-            tsumo: KumiPuyo::new(),
+            puyo: PuyoPuyo::new(),
             position: INITIAL_POSITION,
-            next_tsumo: KumiPuyo::new(),
-            next_next_tsumo: KumiPuyo::new(),
+            next: PuyoPuyo::new(),
+            next_next: PuyoPuyo::new(),
             field: [[None; COLS]; TOTAL_ROWS],
             last_failed_rotation: None,
         }
@@ -60,26 +60,26 @@ impl GameField {
     }
 
     /// 幽霊行を除いた見える部分のフィールドを返す
-    pub fn field(&self) -> &[[Option<PuyoColor>; COLS]] {
+    pub fn field(&self) -> &[[Option<Puyo>; COLS]] {
         &self.field[GHOST_ROWS..]
     }
 
     /// 落下中のぷよを返す（幽霊行のぷよは含まない）
-    pub fn falling(&self) -> Vec<(PuyoColor, Position)> {
+    pub fn falling(&self) -> Vec<(Puyo, Position)> {
         let puyos = [
-            (self.tsumo.axis_color(), self.position),
-            (self.tsumo.child_color(), self.child_position()),
+            (self.puyo.axis(), self.position),
+            (self.puyo.child(), self.child_position()),
         ];
         puyos
             .into_iter()
             .filter(|(_, pos)| pos.row >= GHOST_ROWS)
-            .map(|(color, pos)| (color, Position::new(pos.col, pos.row - GHOST_ROWS)))
+            .map(|(puyo, pos)| (puyo, Position::new(pos.col, pos.row - GHOST_ROWS)))
             .collect()
     }
 
     /// 移動後の軸と子の両方が範囲内かつ空きマスか判定
     fn can_move(&self, dc: isize, dr: isize) -> bool {
-        let (child_dc, child_dr) = self.tsumo.orientation().offset();
+        let (child_dc, child_dr) = self.puyo.orientation().offset();
         let new_col = self.position.col as isize + dc;
         let new_row = self.position.row as isize + dr;
         let new_child_col = new_col + child_dc;
@@ -125,9 +125,9 @@ impl GameField {
         );
 
         let target_ori = if is_quick {
-            self.tsumo.orientation().rotate(rotation).rotate(rotation)
+            self.puyo.orientation().rotate(rotation).rotate(rotation)
         } else {
-            self.tsumo.orientation().rotate(rotation)
+            self.puyo.orientation().rotate(rotation)
         };
         let (dc, dr) = target_ori.offset();
         let col = self.position.col as isize;
@@ -150,12 +150,12 @@ impl GameField {
             self.position.col = kc as usize;
             self.position.row = kr as usize;
         }
-        self.tsumo.set_orientation(target_ori);
+        self.puyo.set_orientation(target_ori);
         self.last_failed_rotation = None;
     }
 
     fn child_position(&self) -> Position {
-        let (dc, dr) = self.tsumo.orientation().offset();
+        let (dc, dr) = self.puyo.orientation().offset();
         Position::new(
             (self.position.col as isize + dc) as usize,
             (self.position.row as isize + dr) as usize,
@@ -166,13 +166,13 @@ impl GameField {
         // フィールドに固定
         let axis_pos = self.position;
         let child_pos = self.child_position();
-        self.field[axis_pos.row][axis_pos.col] = Some(self.tsumo.axis_color());
-        self.field[child_pos.row][child_pos.col] = Some(self.tsumo.child_color());
+        self.field[axis_pos.row][axis_pos.col] = Some(self.puyo.axis());
+        self.field[child_pos.row][child_pos.col] = Some(self.puyo.child());
 
-        // 新しいツモを生成
-        self.tsumo = self.next_tsumo;
-        self.next_tsumo = self.next_next_tsumo;
-        self.next_next_tsumo = KumiPuyo::new();
+        // 新しいぷよを生成
+        self.puyo = self.next;
+        self.next = self.next_next;
+        self.next_next = PuyoPuyo::new();
         self.position = INITIAL_POSITION;
     }
 
