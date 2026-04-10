@@ -13,6 +13,7 @@ pub const ROWS: usize = 12;
 pub const DROP_INTERVAL: f64 = 0.4;
 pub const MOVE_INTERVAL: f64 = 0.1;
 pub const QUICK_TURN_WINDOW: f64 = 0.3;
+pub const DROP_GRAVITY_INTERVAL: f64 = 0.05;
 
 // フィールド左上のピクセル座標（ウィンドウ中央に配置）
 pub const FIELD_X: f32 = (WINDOW_WIDTH - PUYO_SIZE * COLS as f32) / 2.0;

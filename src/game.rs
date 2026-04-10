@@ -26,13 +26,31 @@ impl Position {
     }
 }
 
+pub enum Screen {
+    Title,               // タイトル画面
+    Playing(GameField),  // プレイ中
+    GameOver(GameField), // ゲームオーバー
+}
+
+impl Screen {
+    pub fn new() -> Self {
+        Screen::Title
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum PlayState {
+    Active,   // 操作中
+    Dropping, // ちぎり後の自由落下
+    Landed,   // 接地完了
+}
+
 pub struct GameField {
-    puyo: PuyoPuyo,                                // 落下中のぷよ
-    position: Position,                            // 軸ぷよの位置
-    next: PuyoPuyo,                                // 次のぷよ
-    next_next: PuyoPuyo,                           // 次の次のぷよ
-    field: [[Option<Puyo>; COLS]; TOTAL_ROWS],     // フィールド（幽霊行を含む）
-    last_failed_rotation: Option<(Rotation, f64)>, // クイックターン判定用
+    puyo: PuyoPuyo,                            // 落下中のぷよ
+    position: Position,                        // 軸ぷよの位置
+    next: PuyoPuyo,                            // 次のぷよ
+    next_next: PuyoPuyo,                       // 次の次のぷよ
+    field: [[Option<Puyo>; COLS]; TOTAL_ROWS], // フィールド（幽霊行を含む）
 }
 
 impl GameField {
@@ -43,20 +61,29 @@ impl GameField {
             next: PuyoPuyo::new(),
             next_next: PuyoPuyo::new(),
             field: [[None; COLS]; TOTAL_ROWS],
-            last_failed_rotation: None,
         }
     }
 
-    /// 自動落下を実行
-    pub fn tick(&mut self) -> TickResult {
+    fn child_position(&self) -> Position {
+        let (dc, dr) = self.puyo.orientation().offset();
+        Position::new(
+            (self.position.col as isize + dc) as usize,
+            (self.position.row as isize + dr) as usize,
+        )
+    }
+
+    /// 操作中の自動落下
+    pub fn active_tick(&mut self) -> PlayState {
         if !self.move_down() {
             self.settle();
-            if self.is_game_over() {
-                return TickResult::GameOver;
-            }
-            return TickResult::Settled;
+            return PlayState::Dropping;
         }
-        TickResult::Falling
+        PlayState::Active
+    }
+
+    /// ちぎり落下（1マスずつ）。落ちきったら true
+    pub fn drop_tick(&mut self) -> bool {
+        !self.drop_down()
     }
 
     /// 幽霊行を除いた見える部分のフィールドを返す
@@ -65,7 +92,7 @@ impl GameField {
     }
 
     /// 落下中のぷよを返す（幽霊行のぷよは含まない）
-    pub fn falling(&self) -> Vec<(Puyo, Position)> {
+    pub fn active(&self) -> Vec<(Puyo, Position)> {
         let puyos = [
             (self.puyo.axis(), self.position),
             (self.puyo.child(), self.child_position()),
@@ -117,13 +144,22 @@ impl GameField {
         }
     }
 
-    pub fn rotate(&mut self, rotation: Rotation) {
-        let now = macroquad::time::get_time();
-        let is_quick = matches!(
-            self.last_failed_rotation,
-            Some((r, t)) if r == rotation && now - t < QUICK_TURN_WINDOW
-        );
+    // フィールドのぷよを1マスだけ落とす。落としたら true
+    fn drop_down(&mut self) -> bool {
+        let mut dropped = false;
+        for row in (0..TOTAL_ROWS - 1).rev() {
+            for col in 0..COLS {
+                if self.field[row][col].is_some() && self.field[row + 1][col].is_none() {
+                    self.field[row + 1][col] = self.field[row][col];
+                    self.field[row][col] = None;
+                    dropped = true;
+                }
+            }
+        }
+        dropped
+    }
 
+    pub fn rotate(&mut self, rotation: Rotation, is_quick: bool) -> bool {
         let target_ori = if is_quick {
             self.puyo.orientation().rotate(rotation).rotate(rotation)
         } else {
@@ -139,10 +175,7 @@ impl GameField {
 
         // 子ぷよの先もキック先も埋まっている → 失敗
         if !self.is_empty(cc, cr) && !self.is_empty(kc, kr) {
-            if !is_quick {
-                self.last_failed_rotation = Some((rotation, now));
-            }
-            return;
+            return false;
         }
 
         // キックが必要なら軸をずらす
@@ -151,51 +184,26 @@ impl GameField {
             self.position.row = kr as usize;
         }
         self.puyo.set_orientation(target_ori);
-        self.last_failed_rotation = None;
+        true
     }
 
-    fn child_position(&self) -> Position {
-        let (dc, dr) = self.puyo.orientation().offset();
-        Position::new(
-            (self.position.col as isize + dc) as usize,
-            (self.position.row as isize + dr) as usize,
-        )
-    }
-
-    fn settle(&mut self) {
+    pub fn settle(&mut self) {
         // フィールドに固定
         let axis_pos = self.position;
         let child_pos = self.child_position();
         self.field[axis_pos.row][axis_pos.col] = Some(self.puyo.axis());
         self.field[child_pos.row][child_pos.col] = Some(self.puyo.child());
+    }
 
-        // 新しいぷよを生成
+    // ネクストぷよに切り替え
+    pub fn spawn_next(&mut self) {
         self.puyo = self.next;
         self.next = self.next_next;
         self.next_next = PuyoPuyo::new();
         self.position = INITIAL_POSITION;
     }
 
-    fn is_game_over(&self) -> bool {
+    pub fn is_game_over(&self) -> bool {
         self.field[INITIAL_POSITION.row][INITIAL_POSITION.col].is_some()
-    }
-}
-
-#[derive(PartialEq)]
-pub enum TickResult {
-    Falling,
-    Settled,
-    GameOver,
-}
-
-pub enum GamePhase {
-    Start,
-    Playing(GameField),
-    GameOver(GameField),
-}
-
-impl GamePhase {
-    pub fn new() -> Self {
-        GamePhase::Start
     }
 }
