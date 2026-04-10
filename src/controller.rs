@@ -9,6 +9,7 @@ pub struct Controller {
     renderer: Renderer,
     play_state: PlayState,
     last_move_time: f64,
+    move_repeating: bool, // リピート移動が開始されているか
     last_drop_time: f64,
     last_failed_rotation: Option<(Rotation, f64)>, // クイックターン判定用
 }
@@ -22,6 +23,7 @@ impl Controller {
             play_state: PlayState::Active,
             last_drop_time: get_time(),
             last_move_time: 0.0,
+            move_repeating: false,
             last_failed_rotation: None,
         }
     }
@@ -51,22 +53,39 @@ impl Controller {
                         }
 
                         // 方向キー
-                        if is_key_down(KeyCode::Left)
+                        let any_pressed = is_key_pressed(KeyCode::Left)
+                            || is_key_pressed(KeyCode::Right)
+                            || is_key_pressed(KeyCode::Down);
+                        let any_down = is_key_down(KeyCode::Left)
                             || is_key_down(KeyCode::Right)
-                            || is_key_down(KeyCode::Down)
-                        {
-                            if now - self.last_move_time > MOVE_INTERVAL {
-                                if is_key_down(KeyCode::Left) {
-                                    field.move_left();
-                                }
-                                if is_key_down(KeyCode::Right) {
-                                    field.move_right();
-                                }
-                                if is_key_down(KeyCode::Down) {
-                                    field.move_down();
-                                }
-                                self.last_move_time = now;
+                            || is_key_down(KeyCode::Down);
+                        let interval = if self.move_repeating {
+                            MOVE_INTERVAL
+                        } else {
+                            MOVE_REPEAT_DELAY
+                        };
+                        let should_move =
+                            any_pressed || (any_down && now - self.last_move_time > interval);
+                        if should_move {
+                            if is_key_down(KeyCode::Left) {
+                                field.move_left();
                             }
+                            if is_key_down(KeyCode::Right) {
+                                field.move_right();
+                            }
+                            if is_key_down(KeyCode::Down) {
+                                field.move_down();
+                            }
+                            self.last_move_time = now;
+                            // 初回入力後はリピート扱いに
+                            if any_pressed {
+                                self.move_repeating = false;
+                            } else {
+                                self.move_repeating = true;
+                            }
+                        }
+                        if !any_down {
+                            self.move_repeating = false;
                         }
 
                         // 回転
