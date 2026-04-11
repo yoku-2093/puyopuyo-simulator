@@ -1,5 +1,6 @@
 use crate::constants::*;
 use crate::puyo::*;
+use macroquad::prelude::*;
 
 const GHOST_ROWS: usize = 1;
 const INITIAL_POSITION: Position = Position::new(2, GHOST_ROWS);
@@ -27,9 +28,9 @@ impl Position {
 }
 
 pub enum Screen {
-    Title,               // タイトル画面
-    Playing(GameField),  // プレイ中
-    GameOver(GameField), // ゲームオーバー
+    Title,              // タイトル画面
+    Playing(GameField), // プレイ中
+    GameOver,           // ゲームオーバー
 }
 
 impl Screen {
@@ -41,6 +42,7 @@ impl Screen {
 #[derive(Clone, Copy, PartialEq)]
 pub enum PlayState {
     Active,   // 操作中
+    Settling, // 接地して固定待ち
     Dropping, // ちぎり後の自由落下
     Landed,   // 接地完了
 }
@@ -72,17 +74,13 @@ impl GameField {
         )
     }
 
-    /// 操作中の自動落下
-    pub fn active_tick(&mut self) -> PlayState {
-        if !self.move_down() {
-            self.settle();
-            return PlayState::Dropping;
-        }
-        PlayState::Active
+    /// 接地しているか（下に動かせないか）
+    fn is_grounded(&self) -> bool {
+        !self.can_move(0, 1)
     }
 
     /// ちぎり落下（1マスずつ）。落ちきったら true
-    pub fn drop_tick(&mut self) -> bool {
+    fn drop_tick(&mut self) -> bool {
         !self.drop_down()
     }
 
@@ -123,19 +121,19 @@ impl GameField {
             && self.field[row as usize][col as usize].is_none()
     }
 
-    pub fn move_left(&mut self) {
+    fn move_left(&mut self) {
         if self.can_move(-1, 0) {
             self.position.col -= 1;
         }
     }
 
-    pub fn move_right(&mut self) {
+    fn move_right(&mut self) {
         if self.can_move(1, 0) {
             self.position.col += 1;
         }
     }
 
-    pub fn move_down(&mut self) -> bool {
+    fn move_down(&mut self) -> bool {
         if self.can_move(0, 1) {
             self.position.row += 1;
             true
@@ -159,7 +157,7 @@ impl GameField {
         dropped
     }
 
-    pub fn rotate(&mut self, rotation: Rotation, is_quick: bool) -> bool {
+    fn rotate(&mut self, rotation: Rotation, is_quick: bool) -> bool {
         let target_ori = if is_quick {
             self.puyo.orientation().rotate(rotation).rotate(rotation)
         } else {
@@ -187,7 +185,7 @@ impl GameField {
         true
     }
 
-    pub fn settle(&mut self) {
+    fn settle(&mut self) {
         // フィールドに固定
         let axis_pos = self.position;
         let child_pos = self.child_position();
@@ -196,14 +194,155 @@ impl GameField {
     }
 
     // ネクストぷよに切り替え
-    pub fn spawn_next(&mut self) {
+    fn spawn_next(&mut self) {
         self.puyo = self.next;
         self.next = self.next_next;
         self.next_next = PuyoPuyo::new();
         self.position = INITIAL_POSITION;
     }
 
-    pub fn is_game_over(&self) -> bool {
+    fn is_game_over(&self) -> bool {
         self.field[INITIAL_POSITION.row][INITIAL_POSITION.col].is_some()
+    }
+}
+
+pub struct PlayContext {
+    pub play_state: PlayState,
+    last_drop_time: f64,
+    last_move_time: f64,
+    move_repeating: bool, // リピート移動が開始されているか
+    settling_start: f64,  // 接地待ち開始時刻
+    last_failed_rotation: Option<(Rotation, f64)>, // クイックターン判定用
+}
+
+impl PlayContext {
+    pub fn new() -> Self {
+        PlayContext {
+            play_state: PlayState::Active,
+            last_drop_time: get_time(),
+            last_move_time: 0.0,
+            move_repeating: false,
+            settling_start: 0.0,
+            last_failed_rotation: None,
+        }
+    }
+}
+
+impl GameField {
+    /// 戻り値: ゲームオーバーなら true
+    pub fn tick(&mut self, ctx: &mut PlayContext, now: f64) -> bool {
+        match ctx.play_state {
+            PlayState::Active => {
+                self.tick_active(ctx, now);
+                false
+            }
+            PlayState::Settling => {
+                self.tick_settling(ctx, now);
+                false
+            }
+            PlayState::Dropping => {
+                self.tick_dropping(ctx, now);
+                false
+            }
+            PlayState::Landed => self.tick_landed(ctx, now),
+        }
+    }
+
+    fn tick_active(&mut self, ctx: &mut PlayContext, now: f64) {
+        if now - ctx.last_drop_time > DROP_INTERVAL {
+            self.move_down();
+            ctx.last_drop_time = now;
+        }
+        self.handle_move_keys(ctx, now);
+        self.handle_rotate_keys(ctx);
+        if self.is_grounded() {
+            ctx.play_state = PlayState::Settling;
+            ctx.settling_start = now;
+        }
+    }
+
+    fn tick_settling(&mut self, ctx: &mut PlayContext, now: f64) {
+        self.handle_move_keys(ctx, now);
+        self.handle_rotate_keys(ctx);
+        if !self.is_grounded() {
+            ctx.play_state = PlayState::Active;
+        } else if now - ctx.settling_start > LOCK_DELAY {
+            self.settle();
+            ctx.play_state = PlayState::Dropping;
+        }
+    }
+
+    fn tick_dropping(&mut self, ctx: &mut PlayContext, now: f64) {
+        if now - ctx.last_drop_time > DROP_GRAVITY_INTERVAL {
+            if self.drop_tick() {
+                ctx.play_state = PlayState::Landed;
+            }
+            ctx.last_drop_time = now;
+        }
+    }
+
+    fn tick_landed(&mut self, ctx: &mut PlayContext, now: f64) -> bool {
+        if self.is_game_over() {
+            return true;
+        }
+        self.spawn_next();
+        ctx.play_state = PlayState::Active;
+        ctx.last_drop_time = now;
+        false
+    }
+
+    fn handle_move_keys(&mut self, ctx: &mut PlayContext, now: f64) {
+        let dirs = [KeyCode::Left, KeyCode::Right, KeyCode::Down];
+        let just_pressed = dirs.iter().any(|&k| is_key_pressed(k));
+        let held = dirs.iter().any(|&k| is_key_down(k));
+
+        if !held {
+            ctx.move_repeating = false;
+            return;
+        }
+
+        let interval = if ctx.move_repeating {
+            MOVE_INTERVAL
+        } else {
+            MOVE_REPEAT_DELAY
+        };
+        if !just_pressed && now - ctx.last_move_time <= interval {
+            return;
+        }
+
+        if is_key_down(KeyCode::Left) {
+            self.move_left();
+        }
+        if is_key_down(KeyCode::Right) {
+            self.move_right();
+        }
+        if is_key_down(KeyCode::Down) {
+            self.move_down();
+        }
+        ctx.last_move_time = now;
+        ctx.move_repeating = !just_pressed;
+    }
+
+    fn handle_rotate_keys(&mut self, ctx: &mut PlayContext) {
+        if is_key_pressed(KeyCode::X) {
+            self.try_rotate(ctx, Rotation::Right);
+        }
+        if is_key_pressed(KeyCode::Z) {
+            self.try_rotate(ctx, Rotation::Left);
+        }
+    }
+
+    fn try_rotate(&mut self, ctx: &mut PlayContext, rotation: Rotation) {
+        let now = get_time();
+        let is_quick = matches!(
+            ctx.last_failed_rotation,
+            Some((r, t)) if r == rotation && now - t < QUICK_TURN_WINDOW
+        );
+
+        if self.rotate(rotation, is_quick) {
+            ctx.last_failed_rotation = None;
+        } else {
+            ctx.last_failed_rotation = Some((rotation, now));
+        }
     }
 }

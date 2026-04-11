@@ -13,6 +13,7 @@ pub const ROWS: usize = 12;
 pub const DROP_INTERVAL: f64 = 0.4;
 pub const MOVE_INTERVAL: f64 = 0.1;
 pub const MOVE_REPEAT_DELAY: f64 = 0.2; // 初回入力からリピート開始までの猶予
+pub const LOCK_DELAY: f64 = 0.25; // 接地から固定までの猶予
 pub const QUICK_TURN_WINDOW: f64 = 0.3;
 pub const DROP_GRAVITY_INTERVAL: f64 = 0.05;
 
