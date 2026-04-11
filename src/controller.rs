@@ -74,14 +74,17 @@ impl Controller {
         for row in 0..ROWS {
             for col in 0..COLS {
                 if let Some(puyo) = cells[row][col] {
-                    self.renderer.draw_puyo(puyo, col, row);
+                    self.renderer.draw_puyo(puyo, col as f32, row as f32);
                 }
             }
         }
         if matches!(self.ctx.play_state, PlayState::Active | PlayState::Settling) {
-            for (puyo, pos) in field.active() {
-                self.renderer.draw_puyo(puyo, pos.col(), pos.row());
+            for (puyo, col, row) in field.active() {
+                self.renderer.draw_puyo(puyo, col, row);
             }
+        }
+        for (puyo, col, row) in field.floating() {
+            self.renderer.draw_puyo(puyo, col, row);
         }
     }
 }

@@ -15,7 +15,9 @@ pub const MOVE_INTERVAL: f64 = 0.1;
 pub const MOVE_REPEAT_DELAY: f64 = 0.2; // 初回入力からリピート開始までの猶予
 pub const LOCK_DELAY: f64 = 0.25; // 接地から固定までの猶予
 pub const QUICK_TURN_WINDOW: f64 = 0.3;
-pub const DROP_GRAVITY_INTERVAL: f64 = 0.05;
+pub const DROP_GRAVITY: f64 = 50.0; // ちぎり時の重力加速度（rows/s^2）
+pub const DROP_GRAVITY_INITIAL: f64 = 5.0; // ちぎり開始時の初速（rows/s）
+pub const ACTIVE_FALL_LERP: f64 = 40.0; // 操作中の表示位置追従係数
 
 // フィールド左上のピクセル座標（ウィンドウ中央に配置）
 pub const FIELD_X: f32 = (WINDOW_WIDTH - PUYO_SIZE * COLS as f32) / 2.0;

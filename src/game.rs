@@ -18,13 +18,6 @@ impl Position {
         assert!(row < TOTAL_ROWS, "row out of range");
         Position { col, row }
     }
-
-    pub fn col(&self) -> usize {
-        self.col
-    }
-    pub fn row(&self) -> usize {
-        self.row
-    }
 }
 
 pub enum Screen {
@@ -47,12 +40,23 @@ pub enum PlayState {
     Landed,   // 接地完了
 }
 
+pub struct FloatingPuyo {
+    pub puyo: Puyo,
+    pub col: usize,
+    pub row: f64,        // 現在の表示位置
+    target_row: usize,   // 着地する行
+    velocity: f64,       // 落下速度（rows/s）
+}
+
 pub struct GameField {
     puyo: PuyoPuyo,                            // 落下中のぷよ
     position: Position,                        // 軸ぷよの位置
+    display_col: f64,                          // 軸の表示位置（補間用）
+    display_row: f64,
     next: PuyoPuyo,                            // 次のぷよ
     next_next: PuyoPuyo,                       // 次の次のぷよ
     field: [[Option<Puyo>; COLS]; TOTAL_ROWS], // フィールド（幽霊行を含む）
+    floating: Vec<FloatingPuyo>,               // ちぎり中のぷよ
 }
 
 impl GameField {
@@ -60,9 +64,12 @@ impl GameField {
         GameField {
             puyo: PuyoPuyo::new(),
             position: INITIAL_POSITION,
+            display_col: INITIAL_POSITION.col as f64,
+            display_row: INITIAL_POSITION.row as f64,
             next: PuyoPuyo::new(),
             next_next: PuyoPuyo::new(),
             field: [[None; COLS]; TOTAL_ROWS],
+            floating: Vec::new(),
         }
     }
 
@@ -79,26 +86,37 @@ impl GameField {
         !self.can_move(0, 1)
     }
 
-    /// ちぎり落下（1マスずつ）。落ちきったら true
-    fn drop_tick(&mut self) -> bool {
-        !self.drop_down()
-    }
-
     /// 幽霊行を除いた見える部分のフィールドを返す
     pub fn field(&self) -> &[[Option<Puyo>; COLS]] {
         &self.field[GHOST_ROWS..]
     }
 
-    /// 落下中のぷよを返す（幽霊行のぷよは含まない）
-    pub fn active(&self) -> Vec<(Puyo, Position)> {
-        let puyos = [
-            (self.puyo.axis(), self.position),
-            (self.puyo.child(), self.child_position()),
-        ];
-        puyos
+    /// 操作中のぷよの表示位置（軸と子）。幽霊行は除外。
+    pub fn active(&self) -> Vec<(Puyo, f32, f32)> {
+        let (dc, dr) = self.puyo.orientation().offset();
+        let axis = (
+            self.puyo.axis(),
+            self.display_col,
+            self.display_row,
+        );
+        let child = (
+            self.puyo.child(),
+            self.display_col + dc as f64,
+            self.display_row + dr as f64,
+        );
+        [axis, child]
             .into_iter()
-            .filter(|(_, pos)| pos.row >= GHOST_ROWS)
-            .map(|(puyo, pos)| (puyo, Position::new(pos.col, pos.row - GHOST_ROWS)))
+            .filter(|(_, _, row)| *row >= (GHOST_ROWS as f64) - 0.5)
+            .map(|(puyo, col, row)| (puyo, col as f32, (row - GHOST_ROWS as f64) as f32))
+            .collect()
+    }
+
+    /// ちぎり中のぷよの表示位置
+    pub fn floating(&self) -> Vec<(Puyo, f32, f32)> {
+        self.floating
+            .iter()
+            .filter(|f| f.row >= (GHOST_ROWS as f64) - 0.5)
+            .map(|f| (f.puyo, f.col as f32, (f.row - GHOST_ROWS as f64) as f32))
             .collect()
     }
 
@@ -142,21 +160,6 @@ impl GameField {
         }
     }
 
-    // フィールドのぷよを1マスだけ落とす。落としたら true
-    fn drop_down(&mut self) -> bool {
-        let mut dropped = false;
-        for row in (0..TOTAL_ROWS - 1).rev() {
-            for col in 0..COLS {
-                if self.field[row][col].is_some() && self.field[row + 1][col].is_none() {
-                    self.field[row + 1][col] = self.field[row][col];
-                    self.field[row][col] = None;
-                    dropped = true;
-                }
-            }
-        }
-        dropped
-    }
-
     fn rotate(&mut self, rotation: Rotation, is_quick: bool) -> bool {
         let target_ori = if is_quick {
             self.puyo.orientation().rotate(rotation).rotate(rotation)
@@ -185,20 +188,14 @@ impl GameField {
         true
     }
 
-    fn settle(&mut self) {
-        // フィールドに固定
-        let axis_pos = self.position;
-        let child_pos = self.child_position();
-        self.field[axis_pos.row][axis_pos.col] = Some(self.puyo.axis());
-        self.field[child_pos.row][child_pos.col] = Some(self.puyo.child());
-    }
-
     // ネクストぷよに切り替え
     fn spawn_next(&mut self) {
         self.puyo = self.next;
         self.next = self.next_next;
         self.next_next = PuyoPuyo::new();
         self.position = INITIAL_POSITION;
+        self.display_col = INITIAL_POSITION.col as f64;
+        self.display_row = INITIAL_POSITION.row as f64;
     }
 
     fn is_game_over(&self) -> bool {
@@ -209,6 +206,7 @@ impl GameField {
 pub struct PlayContext {
     pub play_state: PlayState,
     last_drop_time: f64,
+    last_frame_time: f64, // 直前の tick の時刻（dt 計算用）
     last_move_time: f64,
     move_repeating: bool, // リピート移動が開始されているか
     settling_start: f64,  // 接地待ち開始時刻
@@ -217,9 +215,11 @@ pub struct PlayContext {
 
 impl PlayContext {
     pub fn new() -> Self {
+        let now = get_time();
         PlayContext {
             play_state: PlayState::Active,
-            last_drop_time: get_time(),
+            last_drop_time: now,
+            last_frame_time: now,
             last_move_time: 0.0,
             move_repeating: false,
             settling_start: 0.0,
@@ -231,54 +231,138 @@ impl PlayContext {
 impl GameField {
     /// 戻り値: ゲームオーバーなら true
     pub fn tick(&mut self, ctx: &mut PlayContext, now: f64) -> bool {
+        let dt = (now - ctx.last_frame_time).clamp(0.0, 0.1);
+        ctx.last_frame_time = now;
         match ctx.play_state {
             PlayState::Active => {
-                self.tick_active(ctx, now);
+                self.tick_active(ctx, now, dt);
                 false
             }
             PlayState::Settling => {
-                self.tick_settling(ctx, now);
+                self.tick_settling(ctx, now, dt);
                 false
             }
             PlayState::Dropping => {
-                self.tick_dropping(ctx, now);
+                self.tick_dropping(ctx, dt);
                 false
             }
             PlayState::Landed => self.tick_landed(ctx, now),
         }
     }
 
-    fn tick_active(&mut self, ctx: &mut PlayContext, now: f64) {
+    fn tick_active(&mut self, ctx: &mut PlayContext, now: f64, dt: f64) {
         if now - ctx.last_drop_time > DROP_INTERVAL {
             self.move_down();
             ctx.last_drop_time = now;
         }
         self.handle_move_keys(ctx, now);
         self.handle_rotate_keys(ctx);
+        self.update_display(dt);
         if self.is_grounded() {
             ctx.play_state = PlayState::Settling;
             ctx.settling_start = now;
         }
     }
 
-    fn tick_settling(&mut self, ctx: &mut PlayContext, now: f64) {
+    fn tick_settling(&mut self, ctx: &mut PlayContext, now: f64, dt: f64) {
         self.handle_move_keys(ctx, now);
         self.handle_rotate_keys(ctx);
+        self.update_display(dt);
         if !self.is_grounded() {
             ctx.play_state = PlayState::Active;
-        } else if now - ctx.settling_start > LOCK_DELAY {
-            self.settle();
+        } else if now - ctx.settling_start > LOCK_DELAY
+            && (self.display_row - self.position.row as f64).abs() < 0.05
+        {
+            self.start_chigiri();
             ctx.play_state = PlayState::Dropping;
         }
     }
 
-    fn tick_dropping(&mut self, ctx: &mut PlayContext, now: f64) {
-        if now - ctx.last_drop_time > DROP_GRAVITY_INTERVAL {
-            if self.drop_tick() {
-                ctx.play_state = PlayState::Landed;
+    fn tick_dropping(&mut self, ctx: &mut PlayContext, dt: f64) {
+        let mut i = 0;
+        while i < self.floating.len() {
+            let f = &mut self.floating[i];
+            f.velocity += DROP_GRAVITY * dt;
+            f.row += f.velocity * dt;
+            if f.row >= f.target_row as f64 {
+                let f = self.floating.remove(i);
+                self.field[f.target_row][f.col] = Some(f.puyo);
+            } else {
+                i += 1;
             }
-            ctx.last_drop_time = now;
         }
+        if self.floating.is_empty() {
+            ctx.play_state = PlayState::Landed;
+        }
+    }
+
+    /// 表示位置を論理位置に向かって補間
+    fn update_display(&mut self, dt: f64) {
+        let factor = (ACTIVE_FALL_LERP * dt).min(1.0);
+        self.display_col += (self.position.col as f64 - self.display_col) * factor;
+        self.display_row += (self.position.row as f64 - self.display_row) * factor;
+    }
+
+    /// 組ぷよを floating に積んでちぎりを開始
+    fn start_chigiri(&mut self) {
+        let axis_col = self.position.col;
+        let axis_row = self.position.row;
+        let child = self.child_position();
+        let axis_puyo = self.puyo.axis();
+        let child_puyo = self.puyo.child();
+
+        if axis_col == child.col {
+            // 同じ列: 下のぷよから順に target を割り当てる
+            let col = axis_col;
+            let mut bottom = self.bottom_empty(col);
+            let (lower_puyo, lower_row, upper_puyo, upper_row) = if axis_row > child.row {
+                (axis_puyo, axis_row, child_puyo, child.row)
+            } else {
+                (child_puyo, child.row, axis_puyo, axis_row)
+            };
+            self.floating.push(FloatingPuyo {
+                puyo: lower_puyo,
+                col,
+                row: lower_row as f64,
+                target_row: bottom,
+                velocity: DROP_GRAVITY_INITIAL,
+            });
+            bottom = bottom.saturating_sub(1);
+            self.floating.push(FloatingPuyo {
+                puyo: upper_puyo,
+                col,
+                row: upper_row as f64,
+                target_row: bottom,
+                velocity: DROP_GRAVITY_INITIAL,
+            });
+        } else {
+            // 別の列: 独立に target を計算
+            let axis_target = self.bottom_empty(axis_col);
+            let child_target = self.bottom_empty(child.col);
+            self.floating.push(FloatingPuyo {
+                puyo: axis_puyo,
+                col: axis_col,
+                row: axis_row as f64,
+                target_row: axis_target,
+                velocity: DROP_GRAVITY_INITIAL,
+            });
+            self.floating.push(FloatingPuyo {
+                puyo: child_puyo,
+                col: child.col,
+                row: child.row as f64,
+                target_row: child_target,
+                velocity: DROP_GRAVITY_INITIAL,
+            });
+        }
+    }
+
+    fn bottom_empty(&self, col: usize) -> usize {
+        for r in (0..TOTAL_ROWS).rev() {
+            if self.field[r][col].is_none() {
+                return r;
+            }
+        }
+        0
     }
 
     fn tick_landed(&mut self, ctx: &mut PlayContext, now: f64) -> bool {

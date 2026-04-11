@@ -178,13 +178,11 @@ impl Renderer {
         );
     }
 
-    pub fn draw_puyo(&self, puyo: Puyo, col: usize, row: usize) {
-        assert!(col < COLS, "col out of range: {} (max {})", col, COLS - 1);
-        assert!(row < ROWS, "row out of range: {} (max {})", row, ROWS - 1);
+    pub fn draw_puyo(&self, puyo: Puyo, col: f32, row: f32) {
         draw_texture_ex(
             &self.textures[&puyo],
-            FIELD_X + col as f32 * PUYO_SIZE,
-            FIELD_Y + row as f32 * PUYO_SIZE,
+            FIELD_X + col * PUYO_SIZE,
+            FIELD_Y + row * PUYO_SIZE,
             WHITE,
             DrawTextureParams {
                 dest_size: Some(Vec2::new(PUYO_SIZE, PUYO_SIZE)),
