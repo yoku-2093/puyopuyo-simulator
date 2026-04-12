@@ -73,6 +73,15 @@ impl Orientation {
         }
     }
 
+    pub fn to_angle(self) -> f64 {
+        match self {
+            Orientation::Up => -std::f64::consts::FRAC_PI_2,
+            Orientation::Right => 0.0,
+            Orientation::Down => std::f64::consts::FRAC_PI_2,
+            Orientation::Left => std::f64::consts::PI,
+        }
+    }
+
     pub fn rotate(self, rotation: Rotation) -> Self {
         let i = self as usize;
         let offset = match rotation {
@@ -185,6 +194,7 @@ pub struct GameField {
     position: Position, // 軸ぷよの位置
     display_col: f64,   // 軸の表示位置（補間用）
     display_row: f64,
+    display_angle: f64, // 子ぷよの表示角度（補間用）
     next: PuyoPuyo,                            // 次のぷよ
     next_next: PuyoPuyo,                       // 次の次のぷよ
     field: [[Option<Puyo>; COLS]; TOTAL_ROWS], // フィールド（幽霊行を含む）
@@ -199,6 +209,7 @@ impl GameField {
             position: INITIAL_POSITION,
             display_col: INITIAL_POSITION.col as f64,
             display_row: INITIAL_POSITION.row as f64,
+            display_angle: Orientation::Up.to_angle(),
             next: PuyoPuyo::new(),
             next_next: PuyoPuyo::new(),
             field: [[None; COLS]; TOTAL_ROWS],
@@ -250,14 +261,11 @@ impl GameField {
 
         // 操作中の組ぷよ
         if matches!(ctx.play_state, PlayState::Active | PlayState::Settling) {
-            let (dc, dr) = self.puyopuyo.orientation().offset();
+            let child_col = self.display_col + self.display_angle.cos();
+            let child_row = self.display_row + self.display_angle.sin();
             let pairs = [
                 (self.puyopuyo.axis(), self.display_col, self.display_row),
-                (
-                    self.puyopuyo.child(),
-                    self.display_col + dc as f64,
-                    self.display_row + dr as f64,
-                ),
+                (self.puyopuyo.child(), child_col, child_row),
             ];
             for (puyo, col, row) in pairs {
                 if row >= (GHOST_ROWS as f64) - 0.5 {
@@ -376,6 +384,7 @@ impl GameField {
         self.position = INITIAL_POSITION;
         self.display_col = INITIAL_POSITION.col as f64;
         self.display_row = INITIAL_POSITION.row as f64;
+        self.display_angle = Orientation::Up.to_angle();
     }
 
     fn is_game_over(&self) -> bool {
@@ -498,11 +507,22 @@ impl GameField {
             .retain(|l| now - l.start_time < LANDING_ANIM_DURATION);
     }
 
-    /// 表示位置を論理位置に向かって補間
+    /// 表示位置・角度を論理値に向かって補間
     fn update_display(&mut self, dt: f64) {
-        let factor = (DISPLAY_CHASE_RATE * dt).min(1.0);
-        self.display_col += (self.position.col as f64 - self.display_col) * factor;
-        self.display_row += (self.position.row as f64 - self.display_row) * factor;
+        let move_factor = (DISPLAY_CHASE_RATE * dt).min(1.0);
+        self.display_col += (self.position.col as f64 - self.display_col) * move_factor;
+        self.display_row += (self.position.row as f64 - self.display_row) * move_factor;
+
+        let rot_factor = (ROTATION_CHASE_RATE * dt).min(1.0);
+        let target = self.puyopuyo.orientation().to_angle();
+        let mut diff = target - self.display_angle;
+        if diff > std::f64::consts::PI {
+            diff -= 2.0 * std::f64::consts::PI;
+        }
+        if diff < -std::f64::consts::PI {
+            diff += 2.0 * std::f64::consts::PI;
+        }
+        self.display_angle += diff * rot_factor;
     }
 
     /// 組ぷよを floating に積んでちぎりを開始
