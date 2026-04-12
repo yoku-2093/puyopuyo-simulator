@@ -1,5 +1,4 @@
 use crate::constants::*;
-use crate::puyo::*;
 use macroquad::prelude::*;
 use std::collections::HashMap;
 
@@ -54,10 +53,6 @@ impl Renderer {
             font,
             game_over_text,
         }
-    }
-
-    pub fn draw_title(&self) {
-        draw_text("Hello, PuyoPuyo Simulator!", 20.0, 20.0, 30.0, BLACK);
     }
 
     pub fn draw_background(&self) {
@@ -178,14 +173,18 @@ impl Renderer {
         );
     }
 
-    pub fn draw_puyo(&self, puyo: Puyo, col: f32, row: f32) {
+    pub fn draw_puyo(&self, puyo: Puyo, col: f32, row: f32, scale_x: f32, scale_y: f32) {
+        let w = PUYO_SIZE * scale_x;
+        let h = PUYO_SIZE * scale_y;
+        let x = FIELD_X + col * PUYO_SIZE - (w - PUYO_SIZE) / 2.0;
+        let y = FIELD_Y + row * PUYO_SIZE + (PUYO_SIZE - h);
         draw_texture_ex(
             &self.textures[&puyo],
-            FIELD_X + col * PUYO_SIZE,
-            FIELD_Y + row * PUYO_SIZE,
+            x,
+            y,
             WHITE,
             DrawTextureParams {
-                dest_size: Some(Vec2::new(PUYO_SIZE, PUYO_SIZE)),
+                dest_size: Some(Vec2::new(w, h)),
                 ..Default::default()
             },
         );

@@ -1,7 +1,6 @@
 mod constants;
 mod controller;
 mod game;
-mod puyo;
 mod render;
 
 use constants::*;

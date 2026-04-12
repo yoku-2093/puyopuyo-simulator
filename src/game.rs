@@ -1,11 +1,93 @@
 use crate::constants::*;
-use crate::puyo::*;
 use macroquad::prelude::*;
 
 const GHOST_ROWS: usize = 1;
 const INITIAL_POSITION: Position = Position::new(2, GHOST_ROWS);
 const TOTAL_ROWS: usize = ROWS + GHOST_ROWS;
 
+#[derive(Clone, Copy)]
+pub struct PuyoPuyo {
+    axis: Puyo,
+    child: Puyo,
+    orientation: Orientation,
+}
+
+impl PuyoPuyo {
+    pub fn axis(&self) -> Puyo {
+        self.axis
+    }
+
+    pub fn child(&self) -> Puyo {
+        self.child
+    }
+
+    pub fn new() -> Self {
+        let puyos = [
+            Puyo::Red,
+            Puyo::Blue,
+            Puyo::Green,
+            Puyo::Yellow,
+            Puyo::Purple,
+        ];
+        let axis = puyos[rand::gen_range(0, puyos.len())];
+        let child = puyos[rand::gen_range(0, puyos.len())];
+        PuyoPuyo {
+            axis,
+            child,
+            orientation: Orientation::Up,
+        }
+    }
+
+    pub fn orientation(&self) -> Orientation {
+        self.orientation
+    }
+
+    pub fn set_orientation(&mut self, orientation: Orientation) {
+        self.orientation = orientation;
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Orientation {
+    Up,    // 子が軸の上
+    Right, // 子が軸の右
+    Down,  // 子が軸の下
+    Left,  // 子が軸の左
+}
+
+impl Orientation {
+    const ALL: [Orientation; 4] = [
+        Orientation::Up,
+        Orientation::Right,
+        Orientation::Down,
+        Orientation::Left,
+    ];
+
+    /// 軸ぷよに対する子ぷよの相対位置 (列差, 行差)
+    pub fn offset(self) -> (isize, isize) {
+        match self {
+            Orientation::Up => (0, -1),
+            Orientation::Right => (1, 0),
+            Orientation::Down => (0, 1),
+            Orientation::Left => (-1, 0),
+        }
+    }
+
+    pub fn rotate(self, rotation: Rotation) -> Self {
+        let i = self as usize;
+        let offset = match rotation {
+            Rotation::Right => 1,
+            Rotation::Left => 3, // +3 ≡ -1 (mod 4)
+        };
+        Self::ALL[(i + offset) % 4]
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Rotation {
+    Right,
+    Left,
+}
 #[derive(Clone, Copy)]
 pub struct Position {
     col: usize,
@@ -40,29 +122,80 @@ pub enum PlayState {
     Landed,   // 接地完了
 }
 
+#[derive(Clone, Copy)]
+pub struct DrawEffect {
+    pub scale_x: f32,
+    pub scale_y: f32,
+}
+
+impl Default for DrawEffect {
+    fn default() -> Self {
+        DrawEffect {
+            scale_x: 1.0,
+            scale_y: 1.0,
+        }
+    }
+}
+
+impl DrawEffect {
+    fn squash(progress: f32) -> Self {
+        let squash = LANDING_SQUASH_RATIO * (std::f32::consts::PI * progress).sin();
+        DrawEffect {
+            scale_x: 1.0 + squash * 0.5,
+            scale_y: 1.0 - squash,
+        }
+    }
+}
+
+pub struct DrawPuyo {
+    pub puyo: Puyo,
+    pub col: f32,
+    pub row: f32,
+    pub effect: DrawEffect,
+}
+
 pub struct FloatingPuyo {
     pub puyo: Puyo,
     pub col: usize,
-    pub row: f64,        // 現在の表示位置
-    target_row: usize,   // 着地する行
-    velocity: f64,       // 落下速度（rows/s）
+    pub row: f64,      // 現在の表示位置
+    target_row: usize, // 着地する行
+    velocity: f64,     // 落下速度（rows/s）
+}
+
+impl FloatingPuyo {
+    pub fn new(puyo: Puyo, col: usize, row: f64, target_row: usize) -> Self {
+        FloatingPuyo {
+            puyo,
+            col,
+            row,
+            target_row,
+            velocity: DROP_GRAVITY_INITIAL,
+        }
+    }
+}
+
+pub struct LandedPuyo {
+    pub col: usize,
+    pub row: usize,
+    pub start_time: f64,
 }
 
 pub struct GameField {
-    puyo: PuyoPuyo,                            // 落下中のぷよ
-    position: Position,                        // 軸ぷよの位置
-    display_col: f64,                          // 軸の表示位置（補間用）
+    puyopuyo: PuyoPuyo, // 落下中のぷよ
+    position: Position, // 軸ぷよの位置
+    display_col: f64,   // 軸の表示位置（補間用）
     display_row: f64,
     next: PuyoPuyo,                            // 次のぷよ
     next_next: PuyoPuyo,                       // 次の次のぷよ
     field: [[Option<Puyo>; COLS]; TOTAL_ROWS], // フィールド（幽霊行を含む）
     floating: Vec<FloatingPuyo>,               // ちぎり中のぷよ
+    landed: Vec<LandedPuyo>,                   // 着地スカッシュ中のぷよ
 }
 
 impl GameField {
     pub fn new() -> Self {
         GameField {
-            puyo: PuyoPuyo::new(),
+            puyopuyo: PuyoPuyo::new(),
             position: INITIAL_POSITION,
             display_col: INITIAL_POSITION.col as f64,
             display_row: INITIAL_POSITION.row as f64,
@@ -70,11 +203,12 @@ impl GameField {
             next_next: PuyoPuyo::new(),
             field: [[None; COLS]; TOTAL_ROWS],
             floating: Vec::new(),
+            landed: Vec::new(),
         }
     }
 
     fn child_position(&self) -> Position {
-        let (dc, dr) = self.puyo.orientation().offset();
+        let (dc, dr) = self.puyopuyo.orientation().offset();
         Position::new(
             (self.position.col as isize + dc) as usize,
             (self.position.row as isize + dr) as usize,
@@ -91,38 +225,81 @@ impl GameField {
         &self.field[GHOST_ROWS..]
     }
 
-    /// 操作中のぷよの表示位置（軸と子）。幽霊行は除外。
-    pub fn active(&self) -> Vec<(Puyo, f32, f32)> {
-        let (dc, dr) = self.puyo.orientation().offset();
-        let axis = (
-            self.puyo.axis(),
-            self.display_col,
-            self.display_row,
-        );
-        let child = (
-            self.puyo.child(),
-            self.display_col + dc as f64,
-            self.display_row + dr as f64,
-        );
-        [axis, child]
-            .into_iter()
-            .filter(|(_, _, row)| *row >= (GHOST_ROWS as f64) - 0.5)
-            .map(|(puyo, col, row)| (puyo, col as f32, (row - GHOST_ROWS as f64) as f32))
-            .collect()
+    /// 描画用のぷよリストを返す
+    pub fn draw_list(&self, ctx: &PlayContext, now: f64) -> Vec<DrawPuyo> {
+        let mut list = Vec::new();
+
+        // フィールドのぷよ（着地アニメ中のマスはスカッシュ付き）
+        let cells = self.field();
+        for row in 0..ROWS {
+            for col in 0..COLS {
+                if let Some(puyo) = cells[row][col] {
+                    let effect = self
+                        .landing_progress(col, row, now)
+                        .map(DrawEffect::squash)
+                        .unwrap_or_default();
+                    list.push(DrawPuyo {
+                        puyo,
+                        col: col as f32,
+                        row: row as f32,
+                        effect,
+                    });
+                }
+            }
+        }
+
+        // 操作中の組ぷよ
+        if matches!(ctx.play_state, PlayState::Active | PlayState::Settling) {
+            let (dc, dr) = self.puyopuyo.orientation().offset();
+            let pairs = [
+                (self.puyopuyo.axis(), self.display_col, self.display_row),
+                (
+                    self.puyopuyo.child(),
+                    self.display_col + dc as f64,
+                    self.display_row + dr as f64,
+                ),
+            ];
+            for (puyo, col, row) in pairs {
+                if row >= (GHOST_ROWS as f64) - 0.5 {
+                    list.push(DrawPuyo {
+                        puyo,
+                        col: col as f32,
+                        row: (row - GHOST_ROWS as f64) as f32,
+                        effect: DrawEffect::default(),
+                    });
+                }
+            }
+        }
+
+        // ちぎり中のぷよ
+        for f in &self.floating {
+            if f.row >= (GHOST_ROWS as f64) - 0.5 {
+                list.push(DrawPuyo {
+                    puyo: f.puyo,
+                    col: f.col as f32,
+                    row: (f.row - GHOST_ROWS as f64) as f32,
+                    effect: DrawEffect::default(),
+                });
+            }
+        }
+
+        list
     }
 
-    /// ちぎり中のぷよの表示位置
-    pub fn floating(&self) -> Vec<(Puyo, f32, f32)> {
-        self.floating
-            .iter()
-            .filter(|f| f.row >= (GHOST_ROWS as f64) - 0.5)
-            .map(|f| (f.puyo, f.col as f32, (f.row - GHOST_ROWS as f64) as f32))
-            .collect()
+    fn landing_progress(&self, col: usize, row_visible: usize, now: f64) -> Option<f32> {
+        let row = row_visible + GHOST_ROWS;
+        self.landed.iter().find_map(|l| {
+            if l.col == col && l.row == row {
+                Some(((now - l.start_time) / LANDING_ANIM_DURATION).clamp(0.0, 1.0) as f32)
+            } else {
+                None
+            }
+        })
     }
 
     /// 移動後の軸と子の両方が範囲内かつ空きマスか判定
     fn can_move(&self, dc: isize, dr: isize) -> bool {
-        let (child_dc, child_dr) = self.puyo.orientation().offset();
+        let (child_dc, child_dr) = self.puyopuyo.orientation().offset();
         let new_col = self.position.col as isize + dc;
         let new_row = self.position.row as isize + dr;
         let new_child_col = new_col + child_dc;
@@ -162,9 +339,12 @@ impl GameField {
 
     fn rotate(&mut self, rotation: Rotation, is_quick: bool) -> bool {
         let target_ori = if is_quick {
-            self.puyo.orientation().rotate(rotation).rotate(rotation)
+            self.puyopuyo
+                .orientation()
+                .rotate(rotation)
+                .rotate(rotation)
         } else {
-            self.puyo.orientation().rotate(rotation)
+            self.puyopuyo.orientation().rotate(rotation)
         };
         let (dc, dr) = target_ori.offset();
         let col = self.position.col as isize;
@@ -184,13 +364,13 @@ impl GameField {
             self.position.col = kc as usize;
             self.position.row = kr as usize;
         }
-        self.puyo.set_orientation(target_ori);
+        self.puyopuyo.set_orientation(target_ori);
         true
     }
 
     // ネクストぷよに切り替え
     fn spawn_next(&mut self) {
-        self.puyo = self.next;
+        self.puyopuyo = self.next;
         self.next = self.next_next;
         self.next_next = PuyoPuyo::new();
         self.position = INITIAL_POSITION;
@@ -233,6 +413,7 @@ impl GameField {
     pub fn tick(&mut self, ctx: &mut PlayContext, now: f64) -> bool {
         let dt = (now - ctx.last_frame_time).clamp(0.0, 0.1);
         ctx.last_frame_time = now;
+        self.update_landed(now);
         match ctx.play_state {
             PlayState::Active => {
                 self.tick_active(ctx, now, dt);
@@ -243,7 +424,7 @@ impl GameField {
                 false
             }
             PlayState::Dropping => {
-                self.tick_dropping(ctx, dt);
+                self.tick_dropping(ctx, now, dt);
                 false
             }
             PlayState::Landed => self.tick_landed(ctx, now),
@@ -278,7 +459,7 @@ impl GameField {
         }
     }
 
-    fn tick_dropping(&mut self, ctx: &mut PlayContext, dt: f64) {
+    fn tick_dropping(&mut self, ctx: &mut PlayContext, now: f64, dt: f64) {
         let mut i = 0;
         while i < self.floating.len() {
             let f = &mut self.floating[i];
@@ -287,6 +468,11 @@ impl GameField {
             if f.row >= f.target_row as f64 {
                 let f = self.floating.remove(i);
                 self.field[f.target_row][f.col] = Some(f.puyo);
+                self.landed.push(LandedPuyo {
+                    col: f.col,
+                    row: f.target_row,
+                    start_time: now,
+                });
             } else {
                 i += 1;
             }
@@ -294,75 +480,6 @@ impl GameField {
         if self.floating.is_empty() {
             ctx.play_state = PlayState::Landed;
         }
-    }
-
-    /// 表示位置を論理位置に向かって補間
-    fn update_display(&mut self, dt: f64) {
-        let factor = (ACTIVE_FALL_LERP * dt).min(1.0);
-        self.display_col += (self.position.col as f64 - self.display_col) * factor;
-        self.display_row += (self.position.row as f64 - self.display_row) * factor;
-    }
-
-    /// 組ぷよを floating に積んでちぎりを開始
-    fn start_chigiri(&mut self) {
-        let axis_col = self.position.col;
-        let axis_row = self.position.row;
-        let child = self.child_position();
-        let axis_puyo = self.puyo.axis();
-        let child_puyo = self.puyo.child();
-
-        if axis_col == child.col {
-            // 同じ列: 下のぷよから順に target を割り当てる
-            let col = axis_col;
-            let mut bottom = self.bottom_empty(col);
-            let (lower_puyo, lower_row, upper_puyo, upper_row) = if axis_row > child.row {
-                (axis_puyo, axis_row, child_puyo, child.row)
-            } else {
-                (child_puyo, child.row, axis_puyo, axis_row)
-            };
-            self.floating.push(FloatingPuyo {
-                puyo: lower_puyo,
-                col,
-                row: lower_row as f64,
-                target_row: bottom,
-                velocity: DROP_GRAVITY_INITIAL,
-            });
-            bottom = bottom.saturating_sub(1);
-            self.floating.push(FloatingPuyo {
-                puyo: upper_puyo,
-                col,
-                row: upper_row as f64,
-                target_row: bottom,
-                velocity: DROP_GRAVITY_INITIAL,
-            });
-        } else {
-            // 別の列: 独立に target を計算
-            let axis_target = self.bottom_empty(axis_col);
-            let child_target = self.bottom_empty(child.col);
-            self.floating.push(FloatingPuyo {
-                puyo: axis_puyo,
-                col: axis_col,
-                row: axis_row as f64,
-                target_row: axis_target,
-                velocity: DROP_GRAVITY_INITIAL,
-            });
-            self.floating.push(FloatingPuyo {
-                puyo: child_puyo,
-                col: child.col,
-                row: child.row as f64,
-                target_row: child_target,
-                velocity: DROP_GRAVITY_INITIAL,
-            });
-        }
-    }
-
-    fn bottom_empty(&self, col: usize) -> usize {
-        for r in (0..TOTAL_ROWS).rev() {
-            if self.field[r][col].is_none() {
-                return r;
-            }
-        }
-        0
     }
 
     fn tick_landed(&mut self, ctx: &mut PlayContext, now: f64) -> bool {
@@ -373,6 +490,69 @@ impl GameField {
         ctx.play_state = PlayState::Active;
         ctx.last_drop_time = now;
         false
+    }
+
+    /// 着地スカッシュアニメの期限切れを除去
+    fn update_landed(&mut self, now: f64) {
+        self.landed
+            .retain(|l| now - l.start_time < LANDING_ANIM_DURATION);
+    }
+
+    /// 表示位置を論理位置に向かって補間
+    fn update_display(&mut self, dt: f64) {
+        let factor = (DISPLAY_CHASE_RATE * dt).min(1.0);
+        self.display_col += (self.position.col as f64 - self.display_col) * factor;
+        self.display_row += (self.position.row as f64 - self.display_row) * factor;
+    }
+
+    /// 組ぷよを floating に積んでちぎりを開始
+    fn start_chigiri(&mut self) {
+        let axis_col = self.position.col;
+        let axis_row = self.position.row;
+        let child = self.child_position();
+        let axis_puyo = self.puyopuyo.axis();
+        let child_puyo = self.puyopuyo.child();
+
+        if axis_col == child.col {
+            // 同じ列: 下のぷよから順に target を割り当てる
+            let col = axis_col;
+            let mut bottom = self.bottom_empty(col);
+            let (lower_puyo, lower_row, upper_puyo, upper_row) = if axis_row > child.row {
+                (axis_puyo, axis_row, child_puyo, child.row)
+            } else {
+                (child_puyo, child.row, axis_puyo, axis_row)
+            };
+            self.floating
+                .push(FloatingPuyo::new(lower_puyo, col, lower_row as f64, bottom));
+            bottom = bottom.saturating_sub(1);
+            self.floating
+                .push(FloatingPuyo::new(upper_puyo, col, upper_row as f64, bottom));
+        } else {
+            // 別の列: 独立に target を計算
+            let axis_target = self.bottom_empty(axis_col);
+            let child_target = self.bottom_empty(child.col);
+            self.floating.push(FloatingPuyo::new(
+                axis_puyo,
+                axis_col,
+                axis_row as f64,
+                axis_target,
+            ));
+            self.floating.push(FloatingPuyo::new(
+                child_puyo,
+                child.col,
+                child.row as f64,
+                child_target,
+            ));
+        }
+    }
+
+    fn bottom_empty(&self, col: usize) -> usize {
+        for r in (0..TOTAL_ROWS).rev() {
+            if self.field[r][col].is_none() {
+                return r;
+            }
+        }
+        0
     }
 
     fn handle_move_keys(&mut self, ctx: &mut PlayContext, now: f64) {

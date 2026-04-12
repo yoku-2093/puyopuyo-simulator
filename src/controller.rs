@@ -1,5 +1,4 @@
-use crate::constants::*;
-use crate::game::{GameField, PlayContext, PlayState, Screen};
+use crate::game::{GameField, PlayContext, Screen};
 use crate::render::Renderer;
 use macroquad::prelude::*;
 
@@ -31,7 +30,6 @@ impl Controller {
     }
 
     fn update_title(&mut self) {
-        self.renderer.draw_title();
         self.renderer.draw_press_start();
         if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::Space) {
             self.screen = Screen::Playing(GameField::new());
@@ -70,21 +68,14 @@ impl Controller {
         let Screen::Playing(field) = &self.screen else {
             return;
         };
-        let cells = field.field();
-        for row in 0..ROWS {
-            for col in 0..COLS {
-                if let Some(puyo) = cells[row][col] {
-                    self.renderer.draw_puyo(puyo, col as f32, row as f32);
-                }
-            }
-        }
-        if matches!(self.ctx.play_state, PlayState::Active | PlayState::Settling) {
-            for (puyo, col, row) in field.active() {
-                self.renderer.draw_puyo(puyo, col, row);
-            }
-        }
-        for (puyo, col, row) in field.floating() {
-            self.renderer.draw_puyo(puyo, col, row);
+        for dp in field.draw_list(&self.ctx, get_time()) {
+            self.renderer.draw_puyo(
+                dp.puyo,
+                dp.col,
+                dp.row,
+                dp.effect.scale_x,
+                dp.effect.scale_y,
+            );
         }
     }
 }

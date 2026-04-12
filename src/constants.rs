@@ -17,8 +17,19 @@ pub const LOCK_DELAY: f64 = 0.25; // 接地から固定までの猶予
 pub const QUICK_TURN_WINDOW: f64 = 0.3;
 pub const DROP_GRAVITY: f64 = 50.0; // ちぎり時の重力加速度（rows/s^2）
 pub const DROP_GRAVITY_INITIAL: f64 = 5.0; // ちぎり開始時の初速（rows/s）
-pub const ACTIVE_FALL_LERP: f64 = 40.0; // 操作中の表示位置追従係数
+pub const DISPLAY_CHASE_RATE: f64 = 40.0; // 操作中の表示位置追従係数
+pub const LANDING_ANIM_DURATION: f64 = 0.15; // 着地スカッシュの長さ
+pub const LANDING_SQUASH_RATIO: f32 = 0.3; // 縦の潰れの最大量（0.3 = 30%縮む）
 
 // フィールド左上のピクセル座標（ウィンドウ中央に配置）
 pub const FIELD_X: f32 = (WINDOW_WIDTH - PUYO_SIZE * COLS as f32) / 2.0;
 pub const FIELD_Y: f32 = (WINDOW_HEIGHT - PUYO_SIZE * ROWS as f32) / 2.0;
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Puyo {
+    Red,
+    Blue,
+    Green,
+    Yellow,
+    Purple,
+}
