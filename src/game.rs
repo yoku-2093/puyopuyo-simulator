@@ -413,7 +413,7 @@ impl GameField {
     pub fn tick(&mut self, ctx: &mut PlayContext, now: f64) -> bool {
         let dt = (now - ctx.last_frame_time).clamp(0.0, 0.1);
         ctx.last_frame_time = now;
-        self.update_landed(now);
+        self.remove_expired_landed(now);
         match ctx.play_state {
             PlayState::Active => {
                 self.tick_active(ctx, now, dt);
@@ -493,7 +493,7 @@ impl GameField {
     }
 
     /// 着地スカッシュアニメの期限切れを除去
-    fn update_landed(&mut self, now: f64) {
+    fn remove_expired_landed(&mut self, now: f64) {
         self.landed
             .retain(|l| now - l.start_time < LANDING_ANIM_DURATION);
     }
