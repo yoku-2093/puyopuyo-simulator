@@ -10,8 +10,8 @@ pub const COLS: usize = 6;
 pub const ROWS: usize = 12;
 
 // 落下・移動の時間間隔（秒）
-pub const DROP_INTERVAL: f64 = 0.4;
-pub const MOVE_INTERVAL: f64 = 0.1;
+pub const DROP_INTERVAL: f64 = 0.3;
+pub const MOVE_INTERVAL: f64 = 0.05;
 pub const MOVE_REPEAT_DELAY: f64 = 0.2; // 初回入力からリピート開始までの猶予
 pub const LOCK_DELAY: f64 = 0.25; // 接地から固定までの猶予
 pub const QUICK_TURN_WINDOW: f64 = 0.3;
