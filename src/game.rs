@@ -194,7 +194,7 @@ pub struct GameField {
     position: Position, // 軸ぷよの位置
     display_col: f64,   // 軸の表示位置（補間用）
     display_row: f64,
-    display_angle: f64, // 子ぷよの表示角度（補間用）
+    display_angle: f64,                        // 子ぷよの表示角度（補間用）
     next: PuyoPuyo,                            // 次のぷよ
     next_next: PuyoPuyo,                       // 次の次のぷよ
     field: [[Option<Puyo>; COLS]; TOTAL_ROWS], // フィールド（幽霊行を含む）
@@ -315,13 +315,13 @@ impl GameField {
         self.can_pass(new_col, new_row) && self.can_pass(new_child_col, new_child_row)
     }
 
-    /// 操作中のぷよが通過できるか（幽霊行は常に通過可能）
+    /// 操作中のぷよが通過できるか（最上幽霊行は空なら通過可能）
     fn can_pass(&self, col: isize, row: isize) -> bool {
         col >= 0
             && col < COLS as isize
             && row >= 0
             && row < TOTAL_ROWS as isize
-            && (row < GHOST_ROWS as isize || self.field[row as usize][col as usize].is_none())
+            && self.field[row as usize][col as usize].is_none()
     }
 
     fn move_left(&mut self) {
@@ -362,15 +362,19 @@ impl GameField {
         let kc = col - dc;
         let kr = row - dr;
 
-        // 子ぷよの先もキック先も通れない → 失敗
-        if !self.can_pass(cc, cr) && !self.can_pass(kc, kr) {
-            return false;
-        }
-
-        // キックが必要なら軸をずらす
-        if !self.can_pass(cc, cr) {
+        if self.can_pass(cc, cr) {
+            // そのまま回転OK
+        } else if self.can_pass(kc, kr) {
+            // 通常キック（軸を反対方向に）
             self.position.col = kc as usize;
             self.position.row = kr as usize;
+        } else if self.can_pass(col, row - 1)
+            && self.can_pass(col + dc, row - 1 + dr)
+        {
+            // 上キック（軸を1段上に）
+            self.position.row -= 1;
+        } else {
+            return false;
         }
         self.puyopuyo.set_orientation(target_ori);
         true
@@ -455,9 +459,22 @@ impl GameField {
     }
 
     fn tick_settling(&mut self, ctx: &mut PlayContext, now: f64, dt: f64) {
+        let prev_col = self.position.col;
+        let prev_row = self.position.row;
+        let prev_ori = self.puyopuyo.orientation();
+
         self.handle_move_keys(ctx, now);
         self.handle_rotate_keys(ctx);
         self.update_display(dt);
+
+        // 操作で位置や向きが変わったら猶予をリセット
+        if self.position.col != prev_col
+            || self.position.row != prev_row
+            || self.puyopuyo.orientation() != prev_ori
+        {
+            ctx.settling_start = now;
+        }
+
         if !self.is_grounded() {
             ctx.play_state = PlayState::Active;
         } else if now - ctx.settling_start > LOCK_DELAY
