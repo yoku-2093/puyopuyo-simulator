@@ -1,7 +1,7 @@
 use crate::constants::*;
 use macroquad::prelude::*;
 
-const GHOST_ROWS: usize = 1;
+const GHOST_ROWS: usize = 2;
 const INITIAL_POSITION: Position = Position::new(2, GHOST_ROWS);
 const TOTAL_ROWS: usize = ROWS + GHOST_ROWS;
 
@@ -312,16 +312,16 @@ impl GameField {
         let new_row = self.position.row as isize + dr;
         let new_child_col = new_col + child_dc;
         let new_child_row = new_row + child_dr;
-        self.is_empty(new_col, new_row) && self.is_empty(new_child_col, new_child_row)
+        self.can_pass(new_col, new_row) && self.can_pass(new_child_col, new_child_row)
     }
 
-    /// 指定座標が範囲内かつ空きマスか判定
-    fn is_empty(&self, col: isize, row: isize) -> bool {
+    /// 操作中のぷよが通過できるか（幽霊行は常に通過可能）
+    fn can_pass(&self, col: isize, row: isize) -> bool {
         col >= 0
             && col < COLS as isize
             && row >= 0
             && row < TOTAL_ROWS as isize
-            && self.field[row as usize][col as usize].is_none()
+            && (row < GHOST_ROWS as isize || self.field[row as usize][col as usize].is_none())
     }
 
     fn move_left(&mut self) {
@@ -362,13 +362,13 @@ impl GameField {
         let kc = col - dc;
         let kr = row - dr;
 
-        // 子ぷよの先もキック先も埋まっている → 失敗
-        if !self.is_empty(cc, cr) && !self.is_empty(kc, kr) {
+        // 子ぷよの先もキック先も通れない → 失敗
+        if !self.can_pass(cc, cr) && !self.can_pass(kc, kr) {
             return false;
         }
 
         // キックが必要なら軸をずらす
-        if !self.is_empty(cc, cr) {
+        if !self.can_pass(cc, cr) {
             self.position.col = kc as usize;
             self.position.row = kr as usize;
         }
