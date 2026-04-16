@@ -164,7 +164,7 @@ pub struct DrawPuyo {
     pub effect: DrawEffect,
 }
 
-pub struct FloatingPuyo {
+pub struct DroppingPuyo {
     pub puyo: Puyo,
     pub col: usize,
     pub row: f64,      // 現在の表示位置
@@ -172,9 +172,9 @@ pub struct FloatingPuyo {
     velocity: f64,     // 落下速度（rows/s）
 }
 
-impl FloatingPuyo {
+impl DroppingPuyo {
     pub fn new(puyo: Puyo, col: usize, row: f64, target_row: usize) -> Self {
-        FloatingPuyo {
+        DroppingPuyo {
             puyo,
             col,
             row,
@@ -199,7 +199,7 @@ pub struct GameField {
     next: PuyoPuyo,                            // 次のぷよ
     next_next: PuyoPuyo,                       // 次の次のぷよ
     field: [[Option<Puyo>; COLS]; TOTAL_ROWS], // フィールド（幽霊行を含む）
-    floating: Vec<FloatingPuyo>,               // ちぎり中のぷよ
+    dropping: Vec<DroppingPuyo>,               // ちぎり中のぷよ
     landed: Vec<LandedPuyo>,                   // 着地スカッシュ中のぷよ
 }
 
@@ -214,7 +214,7 @@ impl GameField {
             next: PuyoPuyo::new(),
             next_next: PuyoPuyo::new(),
             field: [[None; COLS]; TOTAL_ROWS],
-            floating: Vec::new(),
+            dropping: Vec::new(),
             landed: Vec::new(),
         }
     }
@@ -281,7 +281,7 @@ impl GameField {
         }
 
         // ちぎり中のぷよ
-        for f in &self.floating {
+        for f in &self.dropping {
             if f.row >= (GHOST_ROWS as f64) - 0.5 {
                 list.push(DrawPuyo {
                     puyo: f.puyo,
@@ -501,12 +501,12 @@ impl GameField {
 
     fn tick_dropping(&mut self, ctx: &mut PlayContext, now: f64, dt: f64) {
         let mut i = 0;
-        while i < self.floating.len() {
-            let f = &mut self.floating[i];
+        while i < self.dropping.len() {
+            let f = &mut self.dropping[i];
             f.velocity += DROP_GRAVITY * dt;
             f.row += f.velocity * dt;
             if f.row >= f.target_row as f64 {
-                let f = self.floating.remove(i);
+                let f = self.dropping.remove(i);
                 self.field[f.target_row][f.col] = Some(f.puyo);
                 self.landed.push(LandedPuyo {
                     col: f.col,
@@ -517,7 +517,7 @@ impl GameField {
                 i += 1;
             }
         }
-        if self.floating.is_empty() {
+        if self.dropping.is_empty() {
             ctx.play_state = PlayState::Chaining;
         }
     }
@@ -561,7 +561,7 @@ impl GameField {
         self.display_angle += diff * rot_factor;
     }
 
-    /// 組ぷよを floating に積んでちぎりを開始
+    /// 組ぷよを dropping に積んでちぎりを開始
     fn start_chigiri(&mut self) {
         let axis_col = self.position.col;
         let axis_row = self.position.row;
@@ -578,22 +578,22 @@ impl GameField {
             } else {
                 (child_puyo, child.row, axis_puyo, axis_row)
             };
-            self.floating
-                .push(FloatingPuyo::new(lower_puyo, col, lower_row as f64, bottom));
+            self.dropping
+                .push(DroppingPuyo::new(lower_puyo, col, lower_row as f64, bottom));
             bottom = bottom.saturating_sub(1);
-            self.floating
-                .push(FloatingPuyo::new(upper_puyo, col, upper_row as f64, bottom));
+            self.dropping
+                .push(DroppingPuyo::new(upper_puyo, col, upper_row as f64, bottom));
         } else {
             // 別の列: 独立に target を計算
             let axis_target = self.bottom_empty(axis_col);
             let child_target = self.bottom_empty(child.col);
-            self.floating.push(FloatingPuyo::new(
+            self.dropping.push(DroppingPuyo::new(
                 axis_puyo,
                 axis_col,
                 axis_row as f64,
                 axis_target,
             ));
-            self.floating.push(FloatingPuyo::new(
+            self.dropping.push(DroppingPuyo::new(
                 child_puyo,
                 child.col,
                 child.row as f64,
