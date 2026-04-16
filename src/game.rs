@@ -128,6 +128,7 @@ pub enum PlayState {
     Active,   // 操作中
     Settling, // 接地して固定待ち
     Dropping, // ちぎり後の自由落下
+    Chaining, // 連鎖中
     Landed,   // 接地完了
 }
 
@@ -228,7 +229,7 @@ impl GameField {
 
     /// 接地しているか（下に動かせないか）
     fn is_grounded(&self) -> bool {
-        !self.can_move(0, 1)
+        !self.can_move((0, 1))
     }
 
     /// 幽霊行を除いた見える部分のフィールドを返す
@@ -306,17 +307,18 @@ impl GameField {
     }
 
     /// 移動後の軸と子の両方が範囲内かつ空きマスか判定
-    fn can_move(&self, dc: isize, dr: isize) -> bool {
+    fn can_move(&self, (dc, dr): (isize, isize)) -> bool {
         let (child_dc, child_dr) = self.puyopuyo.orientation().offset();
-        let new_col = self.position.col as isize + dc;
-        let new_row = self.position.row as isize + dr;
-        let new_child_col = new_col + child_dc;
-        let new_child_row = new_row + child_dr;
-        self.can_pass(new_col, new_row) && self.can_pass(new_child_col, new_child_row)
+        let new_pos = (
+            self.position.col as isize + dc,
+            self.position.row as isize + dr,
+        );
+        let new_child = (new_pos.0 + child_dc, new_pos.1 + child_dr);
+        self.can_pass(new_pos) && self.can_pass(new_child)
     }
 
     /// 操作中のぷよが通過できるか（最上幽霊行は空なら通過可能）
-    fn can_pass(&self, col: isize, row: isize) -> bool {
+    fn can_pass(&self, (col, row): (isize, isize)) -> bool {
         col >= 0
             && col < COLS as isize
             && row >= 0
@@ -325,19 +327,19 @@ impl GameField {
     }
 
     fn move_left(&mut self) {
-        if self.can_move(-1, 0) {
+        if self.can_move((-1, 0)) {
             self.position.col -= 1;
         }
     }
 
     fn move_right(&mut self) {
-        if self.can_move(1, 0) {
+        if self.can_move((1, 0)) {
             self.position.col += 1;
         }
     }
 
     fn move_down(&mut self) -> bool {
-        if self.can_move(0, 1) {
+        if self.can_move((0, 1)) {
             self.position.row += 1;
             true
         } else {
@@ -346,7 +348,8 @@ impl GameField {
     }
 
     fn rotate(&mut self, rotation: Rotation, is_quick: bool) -> bool {
-        let target_ori = if is_quick {
+        let (col, row) = (self.position.col as isize, self.position.row as isize);
+        let new_ori = if is_quick {
             self.puyopuyo
                 .orientation()
                 .rotate(rotation)
@@ -354,29 +357,39 @@ impl GameField {
         } else {
             self.puyopuyo.orientation().rotate(rotation)
         };
-        let (dc, dr) = target_ori.offset();
-        let col = self.position.col as isize;
-        let row = self.position.row as isize;
-        let cc = col + dc;
-        let cr = row + dr;
-        let kc = col - dc;
-        let kr = row - dr;
+        let (new_dc, new_dr) = new_ori.offset();
+        // キックの例（Up → Right 時計回り回転, A=軸 C=子 X=障害物 |=壁）
+        //
+        // 1. そのまま回転OK（new_child が空き）
+        //    [C]
+        //    [A]      →  [A][C]
+        //
+        // 2. 通常キック（new_child が壁、kick_to が空き → 軸を子の反対方向に移動）
+        //    [C]|              |
+        //    [A]|     →  [A][C]|    ※ 子が元の軸位置に来る
+        //
+        // 3. 上キック（new_child も kick_to も塞がれ → 軸を1段上に移動）
+        //   |[C]          |[A][C]
+        //   |[A][X]  →   |   [X]
+        let new_child = (col + new_dc, row + new_dr);
+        let kick_to = (col - new_dc, row - new_dr);
 
-        if self.can_pass(cc, cr) {
+        if self.can_pass(new_child) {
             // そのまま回転OK
-        } else if self.can_pass(kc, kr) {
+        } else if self.can_pass(kick_to) {
             // 通常キック（軸を反対方向に）
-            self.position.col = kc as usize;
-            self.position.row = kr as usize;
-        } else if self.can_pass(col, row - 1)
-            && self.can_pass(col + dc, row - 1 + dr)
-        {
+            self.position.col = kick_to.0 as usize;
+            self.position.row = kick_to.1 as usize;
+        } else {
+            let up_axis = (col, row - 1);
+            let up_child = (col + new_dc, row - 1 + new_dr);
+            if !self.can_pass(up_axis) || !self.can_pass(up_child) {
+                return false;
+            }
             // 上キック（軸を1段上に）
             self.position.row -= 1;
-        } else {
-            return false;
         }
-        self.puyopuyo.set_orientation(target_ori);
+        self.puyopuyo.set_orientation(new_ori);
         true
     }
 
@@ -440,6 +453,7 @@ impl GameField {
                 self.tick_dropping(ctx, now, dt);
                 false
             }
+            PlayState::Chaining => self.tick_chaining(ctx, now),
             PlayState::Landed => self.tick_landed(ctx, now),
         }
     }
@@ -504,8 +518,13 @@ impl GameField {
             }
         }
         if self.floating.is_empty() {
-            ctx.play_state = PlayState::Landed;
+            ctx.play_state = PlayState::Chaining;
         }
+    }
+
+    fn tick_chaining(&mut self, ctx: &mut PlayContext, now: f64) -> bool {
+        ctx.play_state = PlayState::Landed;
+        false
     }
 
     fn tick_landed(&mut self, ctx: &mut PlayContext, now: f64) -> bool {
