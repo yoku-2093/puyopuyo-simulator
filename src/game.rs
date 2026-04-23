@@ -125,17 +125,20 @@ impl Screen {
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum PlayState {
-    Active,   // 操作中
-    Settling, // 接地して固定待ち
-    Dropping, // ちぎり後の自由落下
-    Chaining, // 連鎖中
-    Landed,   // 接地完了
+    Active,    // 操作中
+    Settling,  // 接地して固定待ち
+    Dropping,  // ちぎり後の自由落下
+    Squashing, // 着地直後でぷよが潰れるアニメ中
+    Blinking,  // 点滅中
+    Sparkling, // 弾けるアニメ中
+    Landed,    // 接地完了
 }
 
 #[derive(Clone, Copy)]
 pub struct DrawEffect {
     pub scale_x: f32,
     pub scale_y: f32,
+    pub visible: bool,
 }
 
 impl Default for DrawEffect {
@@ -143,17 +146,23 @@ impl Default for DrawEffect {
         DrawEffect {
             scale_x: 1.0,
             scale_y: 1.0,
+            visible: true,
         }
     }
 }
 
 impl DrawEffect {
-    fn squash(progress: f32) -> Self {
-        let squash = LANDING_SQUASH_RATIO * (std::f32::consts::PI * progress).sin();
-        DrawEffect {
-            scale_x: 1.0 + squash * 0.5,
-            scale_y: 1.0 - squash,
-        }
+    fn squash(mut self, progress: f32) -> Self {
+        let squash = SQUASHING_SQUASH_RATIO * (std::f32::consts::PI * progress).sin();
+        self.scale_x = 1.0 + squash * 0.5;
+        self.scale_y = 1.0 - squash;
+        self
+    }
+
+    fn blink(mut self, progress: f32) -> Self {
+        let phase = (progress * BLINK_COUNT as f32 * 2.0) as i32;
+        self.visible = phase % 2 == 0;
+        self
     }
 }
 
@@ -184,12 +193,64 @@ impl DroppingPuyo {
     }
 }
 
-pub struct LandedPuyo {
+pub struct SquashingPuyo {
     pub col: usize,
     pub row: usize,
     pub start_time: f64,
 }
 
+pub struct BlinkingPuyo {
+    pub col: usize,
+    pub row: usize,
+    pub start_time: f64, // 連鎖開始時刻（アニメーション用）
+}
+
+pub struct SparklingPuyo {
+    pub puyo: Puyo,
+    pub col: usize,
+    pub row: usize,
+}
+
+pub struct Particle {
+    pub color: Color,
+    pub col: f32,
+    pub row: f32,
+    vcol: f32,
+    vrow: f32,
+    pub size: f32,
+    lifetime: f32,
+    elapsed: f32,
+}
+
+impl Particle {
+    pub fn alpha(&self) -> f32 {
+        (1.0 - self.elapsed / self.lifetime).max(0.0)
+    }
+
+    fn alive(&self) -> bool {
+        self.elapsed < self.lifetime
+    }
+
+    fn tick(&mut self, dt: f32) {
+        self.elapsed += dt;
+        self.col += self.vcol * dt;
+        self.row += self.vrow * dt;
+        self.vrow += PARTICLE_GRAVITY * dt;
+    }
+}
+
+fn puyo_color(puyo: Puyo) -> Color {
+    match puyo {
+        Puyo::Red => Color::new(1.0, 0.2, 0.1, 1.0),
+        Puyo::Blue => Color::new(0.0, 0.2, 1.0, 1.0),
+        Puyo::Green => Color::new(0.0, 0.5, 0.15, 1.0),
+        Puyo::Yellow => Color::new(1.0, 0.85, 0.0, 1.0),
+        Puyo::Purple => Color::new(0.3, 0.0, 0.5, 1.0),
+    }
+}
+
+// ゲームの状態を表す構造体
+// positionのrowは幽霊行を含む行番号で管理する（例: position.row == 0 は最上幽霊行）
 pub struct GameField {
     puyopuyo: PuyoPuyo, // 落下中のぷよ
     position: Position, // 軸ぷよの位置
@@ -199,8 +260,12 @@ pub struct GameField {
     next: PuyoPuyo,                            // 次のぷよ
     next_next: PuyoPuyo,                       // 次の次のぷよ
     field: [[Option<Puyo>; COLS]; TOTAL_ROWS], // フィールド（幽霊行を含む）
-    dropping: Vec<DroppingPuyo>,               // ちぎり中のぷよ
-    landed: Vec<LandedPuyo>,                   // 着地スカッシュ中のぷよ
+    is_game_over: bool,
+    dropping: Vec<DroppingPuyo>,   // ちぎり中のぷよ
+    squashing: Vec<SquashingPuyo>, // 着地直後でぷよが潰れるアニメ中
+    blinking: Vec<BlinkingPuyo>,   // 点滅中のぷよ
+    sparkling: Vec<SparklingPuyo>, // 弾けるアニメ中
+    particles: Vec<Particle>,      // パーティクル
 }
 
 impl GameField {
@@ -214,9 +279,17 @@ impl GameField {
             next: PuyoPuyo::new(),
             next_next: PuyoPuyo::new(),
             field: [[None; COLS]; TOTAL_ROWS],
+            is_game_over: false,
             dropping: Vec::new(),
-            landed: Vec::new(),
+            squashing: Vec::new(),
+            blinking: Vec::new(),
+            sparkling: Vec::new(),
+            particles: Vec::new(),
         }
+    }
+
+    pub fn is_game_over(&self) -> bool {
+        self.is_game_over
     }
 
     fn child_position(&self) -> Position {
@@ -233,77 +306,8 @@ impl GameField {
     }
 
     /// 幽霊行を除いた見える部分のフィールドを返す
-    pub fn field(&self) -> &[[Option<Puyo>; COLS]] {
+    pub fn visible_field(&self) -> &[[Option<Puyo>; COLS]] {
         &self.field[GHOST_ROWS..]
-    }
-
-    /// 描画用のぷよリストを返す
-    pub fn draw_list(&self, ctx: &PlayContext, now: f64) -> Vec<DrawPuyo> {
-        let mut list = Vec::new();
-
-        // フィールドのぷよ（着地アニメ中のマスはスカッシュ付き）
-        let cells = self.field();
-        for row in 0..ROWS {
-            for col in 0..COLS {
-                if let Some(puyo) = cells[row][col] {
-                    let effect = self
-                        .landing_progress(col, row, now)
-                        .map(DrawEffect::squash)
-                        .unwrap_or_default();
-                    list.push(DrawPuyo {
-                        puyo,
-                        col: col as f32,
-                        row: row as f32,
-                        effect,
-                    });
-                }
-            }
-        }
-
-        // 操作中の組ぷよ
-        if matches!(ctx.play_state, PlayState::Active | PlayState::Settling) {
-            let child_col = self.display_col + self.display_angle.cos();
-            let child_row = self.display_row + self.display_angle.sin();
-            let pairs = [
-                (self.puyopuyo.axis(), self.display_col, self.display_row),
-                (self.puyopuyo.child(), child_col, child_row),
-            ];
-            for (puyo, col, row) in pairs {
-                if row >= (GHOST_ROWS as f64) - 0.5 {
-                    list.push(DrawPuyo {
-                        puyo,
-                        col: col as f32,
-                        row: (row - GHOST_ROWS as f64) as f32,
-                        effect: DrawEffect::default(),
-                    });
-                }
-            }
-        }
-
-        // ちぎり中のぷよ
-        for f in &self.dropping {
-            if f.row >= (GHOST_ROWS as f64) - 0.5 {
-                list.push(DrawPuyo {
-                    puyo: f.puyo,
-                    col: f.col as f32,
-                    row: (f.row - GHOST_ROWS as f64) as f32,
-                    effect: DrawEffect::default(),
-                });
-            }
-        }
-
-        list
-    }
-
-    fn landing_progress(&self, col: usize, row_visible: usize, now: f64) -> Option<f32> {
-        let row = row_visible + GHOST_ROWS;
-        self.landed.iter().find_map(|l| {
-            if l.col == col && l.row == row {
-                Some(((now - l.start_time) / LANDING_ANIM_DURATION).clamp(0.0, 1.0) as f32)
-            } else {
-                None
-            }
-        })
     }
 
     /// 移動後の軸と子の両方が範囲内かつ空きマスか判定
@@ -404,8 +408,110 @@ impl GameField {
         self.display_angle = Orientation::Up.to_angle();
     }
 
-    fn is_game_over(&self) -> bool {
-        self.field[INITIAL_POSITION.row][INITIAL_POSITION.col].is_some()
+    /// 描画用のぷよリストを返す
+    pub fn draw_list(&self, ctx: &PlayContext, now: f64) -> Vec<DrawPuyo> {
+        let mut list = Vec::new();
+
+        // フィールドのぷよ
+        let cells = self.visible_field();
+        for row in 0..ROWS {
+            for col in 0..COLS {
+                if let Some(puyo) = cells[row][col] {
+                    let mut effect = DrawEffect::default();
+                    if let Some(p) = self.squashing_progress(col, row + GHOST_ROWS, now) {
+                        effect = effect.squash(p);
+                    }
+                    if let Some(p) = self.blinking_progress(col, row, now) {
+                        effect = effect.blink(p);
+                    }
+                    if !effect.visible {
+                        continue;
+                    }
+                    list.push(DrawPuyo {
+                        puyo,
+                        col: col as f32,
+                        row: row as f32,
+                        effect,
+                    });
+                }
+            }
+        }
+
+        // 操作中の組ぷよ
+        if matches!(ctx.play_state, PlayState::Active | PlayState::Settling) {
+            let child_col = self.display_col + self.display_angle.cos();
+            let child_row = self.display_row + self.display_angle.sin();
+            let pairs = [
+                (self.puyopuyo.axis(), self.display_col, self.display_row),
+                (self.puyopuyo.child(), child_col, child_row),
+            ];
+            for (puyo, col, row) in pairs {
+                if row >= (GHOST_ROWS as f64) - 0.5 {
+                    list.push(DrawPuyo {
+                        puyo,
+                        col: col as f32,
+                        row: (row - GHOST_ROWS as f64) as f32,
+                        effect: DrawEffect::default(),
+                    });
+                }
+            }
+        }
+
+        // ちぎり中のぷよ
+        for f in &self.dropping {
+            if f.row >= (GHOST_ROWS as f64) - 0.5 {
+                list.push(DrawPuyo {
+                    puyo: f.puyo,
+                    col: f.col as f32,
+                    row: (f.row - GHOST_ROWS as f64) as f32,
+                    effect: DrawEffect::default(),
+                });
+            }
+        }
+
+        list
+    }
+
+    fn squashing_progress(&self, col: usize, row: usize, now: f64) -> Option<f32> {
+        self.squashing.iter().find_map(|l| {
+            if l.col == col && l.row == row {
+                Some(((now - l.start_time) / SQUASHING_ANIM_DURATION).clamp(0.0, 1.0) as f32)
+            } else {
+                None
+            }
+        })
+    }
+
+    fn blinking_progress(&self, col: usize, row: usize, now: f64) -> Option<f32> {
+        self.blinking.iter().find_map(|l| {
+            if l.col == col && l.row == row {
+                Some(((now - l.start_time) / BLINK_DURATION).clamp(0.0, 1.0) as f32)
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn particle_list(&self) -> &[Particle] {
+        &self.particles
+    }
+
+    fn spawn_particles(&mut self, puyo: Puyo, col: usize, row: usize) {
+        let color = puyo_color(puyo);
+        for _ in 0..PARTICLE_COUNT {
+            let angle = rand::gen_range(0.0f32, 2.0 * std::f32::consts::PI);
+            let speed = rand::gen_range(PARTICLE_SPEED_MIN, PARTICLE_SPEED_MAX);
+            self.particles.push(Particle {
+                color,
+                col: col as f32,
+                row: row as f32,
+                vcol: angle.cos() * speed,
+                vrow: angle.sin() * speed,
+                size: rand::gen_range(PARTICLE_SIZE_MIN, PARTICLE_SIZE_MAX),
+                lifetime: SPARKLE_DURATION as f32,
+                elapsed: 0.0,
+            });
+        }
     }
 }
 
@@ -435,26 +541,18 @@ impl PlayContext {
 }
 
 impl GameField {
-    /// 戻り値: ゲームオーバーなら true
-    pub fn tick(&mut self, ctx: &mut PlayContext, now: f64) -> bool {
+    /// 戻り値: ゲームオーバーなら false
+    pub fn tick(&mut self, ctx: &mut PlayContext, now: f64) {
         let dt = (now - ctx.last_frame_time).clamp(0.0, 0.1);
         ctx.last_frame_time = now;
-        self.remove_expired_landed(now);
         match ctx.play_state {
-            PlayState::Active => {
-                self.tick_active(ctx, now, dt);
-                false
-            }
-            PlayState::Settling => {
-                self.tick_settling(ctx, now, dt);
-                false
-            }
-            PlayState::Dropping => {
-                self.tick_dropping(ctx, now, dt);
-                false
-            }
-            PlayState::Chaining => self.tick_chaining(ctx, now),
-            PlayState::Landed => self.tick_landed(ctx, now),
+            PlayState::Active => self.tick_active(ctx, now, dt),
+            PlayState::Settling => self.tick_settling(ctx, now, dt),
+            PlayState::Dropping => self.tick_dropping(ctx, now, dt),
+            PlayState::Squashing => self.tick_squashing(ctx, now),
+            PlayState::Blinking => self.tick_blinking(ctx, now),
+            PlayState::Sparkling => self.tick_sparkling(ctx, now, dt),
+            PlayState::Landed => self.tick_landed(ctx, now), // ゲームオーバー判定があるので特別扱い
         }
     }
 
@@ -464,7 +562,7 @@ impl GameField {
             ctx.last_drop_time = now;
         }
         self.handle_move_keys(ctx, now);
-        self.handle_rotate_keys(ctx);
+        self.handle_rotate_keys(ctx, now);
         self.update_display(dt);
         if self.is_grounded() {
             ctx.play_state = PlayState::Settling;
@@ -478,7 +576,7 @@ impl GameField {
         let prev_ori = self.puyopuyo.orientation();
 
         self.handle_move_keys(ctx, now);
-        self.handle_rotate_keys(ctx);
+        self.handle_rotate_keys(ctx, now);
         self.update_display(dt);
 
         // 操作で位置や向きが変わったら猶予をリセット
@@ -508,7 +606,7 @@ impl GameField {
             if f.row >= f.target_row as f64 {
                 let f = self.dropping.remove(i);
                 self.field[f.target_row][f.col] = Some(f.puyo);
-                self.landed.push(LandedPuyo {
+                self.squashing.push(SquashingPuyo {
                     col: f.col,
                     row: f.target_row,
                     start_time: now,
@@ -518,29 +616,68 @@ impl GameField {
             }
         }
         if self.dropping.is_empty() {
-            ctx.play_state = PlayState::Chaining;
+            ctx.play_state = PlayState::Squashing;
         }
     }
 
-    fn tick_chaining(&mut self, ctx: &mut PlayContext, now: f64) -> bool {
-        ctx.play_state = PlayState::Landed;
-        false
+    fn tick_squashing(&mut self, ctx: &mut PlayContext, now: f64) {
+        self.squashing
+            .retain(|l| now - l.start_time < SQUASHING_ANIM_DURATION);
+        if self.squashing.is_empty() {
+            // 連鎖判定
+            let chained: [[Option<Puyo>; COLS]; ROWS] = self.chained_puyos();
+            for row in 0..ROWS {
+                for col in 0..COLS {
+                    if let Some(puyo) = chained[row][col] {
+                        self.blinking.push(BlinkingPuyo {
+                            col,
+                            row,
+                            start_time: now,
+                        });
+                        self.sparkling.push(SparklingPuyo { puyo, col, row });
+                    }
+                }
+            }
+            if self.blinking.is_empty() {
+                ctx.play_state = PlayState::Landed;
+            } else {
+                ctx.play_state = PlayState::Blinking;
+            }
+        }
     }
 
-    fn tick_landed(&mut self, ctx: &mut PlayContext, now: f64) -> bool {
-        if self.is_game_over() {
-            return true;
+    fn tick_blinking(&mut self, ctx: &mut PlayContext, now: f64) {
+        self.blinking
+            .retain(|l| now - l.start_time < BLINK_DURATION);
+        if self.blinking.is_empty() {
+            // フィールドからぷよを除去してパーティクルを生成
+            let sparkling: Vec<_> = self.sparkling.drain(..).collect();
+            for sp in sparkling {
+                self.field[sp.row + GHOST_ROWS][sp.col] = None;
+                self.spawn_particles(sp.puyo, sp.col, sp.row);
+            }
+            ctx.play_state = PlayState::Sparkling;
         }
+    }
+
+    fn tick_sparkling(&mut self, ctx: &mut PlayContext, _now: f64, dt: f64) {
+        for p in &mut self.particles {
+            p.tick(dt as f32);
+        }
+        self.particles.retain(|p| p.alive());
+        if self.particles.is_empty() {
+            ctx.play_state = PlayState::Landed;
+        }
+    }
+
+    fn tick_landed(&mut self, ctx: &mut PlayContext, now: f64) {
+        if self.field[INITIAL_POSITION.row][INITIAL_POSITION.col].is_some() {
+            self.is_game_over = true;
+        }
+
         self.spawn_next();
         ctx.play_state = PlayState::Active;
         ctx.last_drop_time = now;
-        false
-    }
-
-    /// 着地スカッシュアニメの期限切れを除去
-    fn remove_expired_landed(&mut self, now: f64) {
-        self.landed
-            .retain(|l| now - l.start_time < LANDING_ANIM_DURATION);
     }
 
     /// 表示位置・角度を論理値に向かって補間
@@ -643,17 +780,16 @@ impl GameField {
         ctx.move_repeating = !just_pressed;
     }
 
-    fn handle_rotate_keys(&mut self, ctx: &mut PlayContext) {
+    fn handle_rotate_keys(&mut self, ctx: &mut PlayContext, now: f64) {
         if is_key_pressed(KeyCode::X) {
-            self.try_rotate(ctx, Rotation::Right);
+            self.try_rotate(ctx, Rotation::Right, now);
         }
         if is_key_pressed(KeyCode::Z) {
-            self.try_rotate(ctx, Rotation::Left);
+            self.try_rotate(ctx, Rotation::Left, now);
         }
     }
 
-    fn try_rotate(&mut self, ctx: &mut PlayContext, rotation: Rotation) {
-        let now = get_time();
+    fn try_rotate(&mut self, ctx: &mut PlayContext, rotation: Rotation, now: f64) {
         let is_quick = matches!(
             ctx.last_failed_rotation,
             Some((r, t)) if r == rotation && now - t < QUICK_TURN_WINDOW
@@ -664,5 +800,50 @@ impl GameField {
         } else {
             ctx.last_failed_rotation = Some((rotation, now));
         }
+    }
+
+    fn chained_puyos(&self) -> [[Option<Puyo>; COLS]; ROWS] {
+        let mut chained_field = [[None; COLS]; ROWS];
+        let cells = self.visible_field();
+        let mut visited = [[false; COLS]; ROWS];
+
+        for row in 0..ROWS {
+            for col in 0..COLS {
+                if visited[row][col] {
+                    continue;
+                }
+                let Some(puyo) = cells[row][col] else {
+                    continue;
+                };
+                let mut group = Vec::new();
+                Self::flood_fill(col, row, puyo, cells, &mut visited, &mut group);
+                if group.len() >= 4 {
+                    for (c, r) in &group {
+                        chained_field[*r][*c] = cells[*r][*c];
+                    }
+                }
+            }
+        }
+        chained_field
+    }
+
+    fn flood_fill(
+        col: usize,
+        row: usize,
+        target: Puyo,
+        cells: &[[Option<Puyo>; COLS]],
+        visited: &mut [[bool; COLS]; ROWS],
+        group: &mut Vec<(usize, usize)>,
+    ) {
+        if visited[row][col] || cells[row][col] != Some(target) {
+            return;
+        }
+        visited[row][col] = true;
+        group.push((col, row));
+
+        if row > 0 { Self::flood_fill(col, row - 1, target, cells, visited, group); }
+        if row + 1 < ROWS { Self::flood_fill(col, row + 1, target, cells, visited, group); }
+        if col > 0 { Self::flood_fill(col - 1, row, target, cells, visited, group); }
+        if col + 1 < COLS { Self::flood_fill(col + 1, row, target, cells, visited, group); }
     }
 }

@@ -51,7 +51,9 @@ impl Controller {
             return;
         };
 
-        if field.tick(&mut self.ctx, now) {
+        field.tick(&mut self.ctx, now);
+
+        if field.is_game_over() {
             self.screen = Screen::GameOver;
             return;
         }
@@ -69,6 +71,9 @@ impl Controller {
             return;
         };
         for dp in field.draw_list(&self.ctx, get_time()) {
+            if !dp.effect.visible {
+                continue;
+            }
             self.renderer.draw_puyo(
                 dp.puyo,
                 dp.col,
@@ -76,6 +81,10 @@ impl Controller {
                 dp.effect.scale_x,
                 dp.effect.scale_y,
             );
+        }
+        for p in field.particle_list() {
+            let color = Color::new(p.color.r, p.color.g, p.color.b, p.alpha());
+            self.renderer.draw_particle(p.col, p.row, p.size, color);
         }
     }
 }

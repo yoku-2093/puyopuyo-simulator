@@ -189,4 +189,11 @@ impl Renderer {
             },
         );
     }
+
+    pub fn draw_particle(&self, col: f32, row: f32, size: f32, color: Color) {
+        let x = FIELD_X + col * PUYO_SIZE + PUYO_SIZE / 2.0;
+        let y = FIELD_Y + row * PUYO_SIZE + PUYO_SIZE / 2.0;
+        let r = size * PUYO_SIZE;
+        draw_circle(x, y, r, color);
+    }
 }
