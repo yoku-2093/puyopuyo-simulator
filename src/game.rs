@@ -111,6 +111,36 @@ impl Position {
     }
 }
 
+/// 幽霊行を含むフィールド全体での行番号（0 = 最上幽霊行）
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct FieldRow(usize);
+
+/// 見える領域での行番号（0 = 見えるフィールドの最上行）
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct VisibleRow(usize);
+
+impl FieldRow {
+    #[allow(dead_code)]
+    pub fn to_visible(self) -> VisibleRow {
+        debug_assert!(self.0 >= GHOST_ROWS);
+        VisibleRow(self.0 - GHOST_ROWS)
+    }
+
+    pub fn index(self) -> usize {
+        self.0
+    }
+}
+
+impl VisibleRow {
+    pub fn to_field(self) -> FieldRow {
+        FieldRow(self.0 + GHOST_ROWS)
+    }
+
+    pub fn index(self) -> usize {
+        self.0
+    }
+}
+
 pub enum Screen {
     Title,              // タイトル画面
     Playing(GameField), // プレイ中
@@ -195,20 +225,20 @@ impl DroppingPuyo {
 
 pub struct SquashingPuyo {
     pub col: usize,
-    pub row: usize,
+    pub row: FieldRow,
     pub start_time: f64,
 }
 
 pub struct BlinkingPuyo {
     pub col: usize,
-    pub row: usize,
-    pub start_time: f64, // 連鎖開始時刻（アニメーション用）
+    pub row: VisibleRow,
+    pub start_time: f64,
 }
 
 pub struct SparklingPuyo {
     pub puyo: Puyo,
     pub col: usize,
-    pub row: usize,
+    pub row: VisibleRow,
 }
 
 pub struct Particle {
@@ -418,10 +448,10 @@ impl GameField {
             for col in 0..COLS {
                 if let Some(puyo) = cells[row][col] {
                     let mut effect = DrawEffect::default();
-                    if let Some(p) = self.squashing_progress(col, row + GHOST_ROWS, now) {
+                    if let Some(p) = self.squashing_progress(col, VisibleRow(row).to_field(), now) {
                         effect = effect.squash(p);
                     }
-                    if let Some(p) = self.blinking_progress(col, row, now) {
+                    if let Some(p) = self.blinking_progress(col, VisibleRow(row), now) {
                         effect = effect.blink(p);
                     }
                     if !effect.visible {
@@ -472,7 +502,7 @@ impl GameField {
         list
     }
 
-    fn squashing_progress(&self, col: usize, row: usize, now: f64) -> Option<f32> {
+    fn squashing_progress(&self, col: usize, row: FieldRow, now: f64) -> Option<f32> {
         self.squashing.iter().find_map(|l| {
             if l.col == col && l.row == row {
                 Some(((now - l.start_time) / SQUASHING_ANIM_DURATION).clamp(0.0, 1.0) as f32)
@@ -482,7 +512,7 @@ impl GameField {
         })
     }
 
-    fn blinking_progress(&self, col: usize, row: usize, now: f64) -> Option<f32> {
+    fn blinking_progress(&self, col: usize, row: VisibleRow, now: f64) -> Option<f32> {
         self.blinking.iter().find_map(|l| {
             if l.col == col && l.row == row {
                 Some(((now - l.start_time) / BLINK_DURATION).clamp(0.0, 1.0) as f32)
@@ -496,7 +526,7 @@ impl GameField {
         &self.particles
     }
 
-    fn spawn_particles(&mut self, puyo: Puyo, col: usize, row: usize) {
+    fn spawn_particles(&mut self, puyo: Puyo, col: usize, row: VisibleRow) {
         let color = puyo_color(puyo);
         for _ in 0..PARTICLE_COUNT {
             let angle = rand::gen_range(0.0f32, 2.0 * std::f32::consts::PI);
@@ -504,7 +534,7 @@ impl GameField {
             self.particles.push(Particle {
                 color,
                 col: col as f32,
-                row: row as f32,
+                row: row.index() as f32,
                 vcol: angle.cos() * speed,
                 vrow: angle.sin() * speed,
                 size: rand::gen_range(PARTICLE_SIZE_MIN, PARTICLE_SIZE_MAX),
@@ -592,7 +622,7 @@ impl GameField {
         } else if now - ctx.settling_start > LOCK_DELAY
             && (self.display_row - self.position.row as f64).abs() < 0.05
         {
-            self.start_chigiri();
+            self.start_dropping();
             ctx.play_state = PlayState::Dropping;
         }
     }
@@ -608,7 +638,7 @@ impl GameField {
                 self.field[f.target_row][f.col] = Some(f.puyo);
                 self.squashing.push(SquashingPuyo {
                     col: f.col,
-                    row: f.target_row,
+                    row: FieldRow(f.target_row),
                     start_time: now,
                 });
             } else {
@@ -629,12 +659,17 @@ impl GameField {
             for row in 0..ROWS {
                 for col in 0..COLS {
                     if let Some(puyo) = chained[row][col] {
+                        let vrow = VisibleRow(row);
                         self.blinking.push(BlinkingPuyo {
                             col,
-                            row,
+                            row: vrow,
                             start_time: now,
                         });
-                        self.sparkling.push(SparklingPuyo { puyo, col, row });
+                        self.sparkling.push(SparklingPuyo {
+                            puyo,
+                            col,
+                            row: vrow,
+                        });
                     }
                 }
             }
@@ -653,7 +688,7 @@ impl GameField {
             // フィールドからぷよを除去してパーティクルを生成
             let sparkling: Vec<_> = self.sparkling.drain(..).collect();
             for sp in sparkling {
-                self.field[sp.row + GHOST_ROWS][sp.col] = None;
+                self.field[sp.row.to_field().index()][sp.col] = None;
                 self.spawn_particles(sp.puyo, sp.col, sp.row);
             }
             ctx.play_state = PlayState::Sparkling;
@@ -699,7 +734,7 @@ impl GameField {
     }
 
     /// 組ぷよを dropping に積んでちぎりを開始
-    fn start_chigiri(&mut self) {
+    fn start_dropping(&mut self) {
         let axis_col = self.position.col;
         let axis_row = self.position.row;
         let child = self.child_position();
@@ -841,9 +876,17 @@ impl GameField {
         visited[row][col] = true;
         group.push((col, row));
 
-        if row > 0 { Self::flood_fill(col, row - 1, target, cells, visited, group); }
-        if row + 1 < ROWS { Self::flood_fill(col, row + 1, target, cells, visited, group); }
-        if col > 0 { Self::flood_fill(col - 1, row, target, cells, visited, group); }
-        if col + 1 < COLS { Self::flood_fill(col + 1, row, target, cells, visited, group); }
+        if row > 0 {
+            Self::flood_fill(col, row - 1, target, cells, visited, group);
+        }
+        if row + 1 < ROWS {
+            Self::flood_fill(col, row + 1, target, cells, visited, group);
+        }
+        if col > 0 {
+            Self::flood_fill(col - 1, row, target, cells, visited, group);
+        }
+        if col + 1 < COLS {
+            Self::flood_fill(col + 1, row, target, cells, visited, group);
+        }
     }
 }
