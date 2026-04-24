@@ -308,6 +308,33 @@ pub struct GameField {
     particles: Vec<Particle>,      // パーティクル
 }
 
+pub struct PlayContext {
+    pub play_state: PlayState,
+    last_drop_time: f64,
+    last_frame_time: f64, // 直前の tick の時刻（dt 計算用）
+    last_move_time: f64,
+    move_repeating: bool, // リピート移動が開始されているか
+    settling_start: f64,  // 接地待ち開始時刻
+    last_failed_rotation: Option<(Rotation, f64)>, // クイックターン判定用
+}
+
+impl PlayContext {
+    pub fn new() -> Self {
+        let now = get_time();
+        PlayContext {
+            play_state: PlayState::Active,
+            last_drop_time: now,
+            last_frame_time: now,
+            last_move_time: 0.0,
+            move_repeating: false,
+            settling_start: 0.0,
+            last_failed_rotation: None,
+        }
+    }
+}
+
+// --- GameField: 生成・公開API ---
+
 impl GameField {
     pub fn new() -> Self {
         GameField {
@@ -331,123 +358,11 @@ impl GameField {
     pub fn is_game_over(&self) -> bool {
         self.is_game_over
     }
+}
 
-    fn child_position(&self) -> Position {
-        let (dc, dr) = self.puyopuyo.orientation().offset();
-        Position::new(
-            (self.position.col as isize + dc) as usize,
-            (self.position.row as isize + dr) as usize,
-        )
-    }
+// --- GameField: 描画 ---
 
-    /// 接地しているか（下に動かせないか）
-    fn is_grounded(&self) -> bool {
-        !self.can_move((0, 1))
-    }
-
-    /// 幽霊行を除いた見える部分のフィールドを返す
-    pub fn visible_field(&self) -> &[[Option<Puyo>; COLS]] {
-        &self.field[GHOST_ROWS..]
-    }
-
-    /// 移動後の軸と子の両方が範囲内かつ空きマスか判定
-    fn can_move(&self, (dc, dr): (isize, isize)) -> bool {
-        let (child_dc, child_dr) = self.puyopuyo.orientation().offset();
-        let new_pos = (
-            self.position.col as isize + dc,
-            self.position.row as isize + dr,
-        );
-        let new_child = (new_pos.0 + child_dc, new_pos.1 + child_dr);
-        self.can_pass(new_pos) && self.can_pass(new_child)
-    }
-
-    /// 操作中のぷよが通過できるか（最上幽霊行は空なら通過可能）
-    fn can_pass(&self, (col, row): (isize, isize)) -> bool {
-        col >= 0
-            && col < COLS as isize
-            && row >= 0
-            && row < TOTAL_ROWS as isize
-            && self.field[row as usize][col as usize].is_none()
-    }
-
-    fn move_left(&mut self) {
-        if self.can_move((-1, 0)) {
-            self.position.col -= 1;
-        }
-    }
-
-    fn move_right(&mut self) {
-        if self.can_move((1, 0)) {
-            self.position.col += 1;
-        }
-    }
-
-    fn move_down(&mut self) -> bool {
-        if self.can_move((0, 1)) {
-            self.position.row += 1;
-            true
-        } else {
-            false
-        }
-    }
-
-    fn rotate(&mut self, rotation: Rotation, is_quick: bool) -> bool {
-        let (col, row) = (self.position.col as isize, self.position.row as isize);
-        let new_ori = if is_quick {
-            self.puyopuyo
-                .orientation()
-                .rotate(rotation)
-                .rotate(rotation)
-        } else {
-            self.puyopuyo.orientation().rotate(rotation)
-        };
-        let (new_dc, new_dr) = new_ori.offset();
-        // キックの例（Up → Right 時計回り回転, A=軸 C=子 X=障害物 |=壁）
-        //
-        // 1. そのまま回転OK（new_child が空き）
-        //    [C]
-        //    [A]      →  [A][C]
-        //
-        // 2. 通常キック（new_child が壁、kick_to が空き → 軸を子の反対方向に移動）
-        //    [C]|              |
-        //    [A]|     →  [A][C]|    ※ 子が元の軸位置に来る
-        //
-        // 3. 上キック（new_child も kick_to も塞がれ → 軸を1段上に移動）
-        //   |[C]          |[A][C]
-        //   |[A][X]  →   |   [X]
-        let new_child = (col + new_dc, row + new_dr);
-        let kick_to = (col - new_dc, row - new_dr);
-
-        if self.can_pass(new_child) {
-            // そのまま回転OK
-        } else if self.can_pass(kick_to) {
-            // 通常キック（軸を反対方向に）
-            self.position.col = kick_to.0 as usize;
-            self.position.row = kick_to.1 as usize;
-        } else {
-            let up_axis = (col, row - 1);
-            let up_child = (col + new_dc, row - 1 + new_dr);
-            if !self.can_pass(up_axis) || !self.can_pass(up_child) {
-                return false;
-            }
-            // 上キック（軸を1段上に）
-            self.position.row -= 1;
-        }
-        self.puyopuyo.set_orientation(new_ori);
-        true
-    }
-
-    // ネクストぷよに切り替え
-    fn spawn_next(&mut self) {
-        self.puyopuyo = self.next;
-        self.next = self.next_next;
-        self.next_next = PuyoPuyo::new();
-        self.position = INITIAL_POSITION;
-        self.display_col = INITIAL_POSITION.col as f64;
-        self.display_row = INITIAL_POSITION.row as f64;
-        self.display_angle = Orientation::Up.to_angle();
-    }
-
+impl GameField {
     /// 描画用のぷよリストを返す
     pub fn draw_list(&self, ctx: &PlayContext, now: f64) -> Vec<DrawPuyo> {
         let mut list = Vec::new();
@@ -513,6 +428,10 @@ impl GameField {
         list
     }
 
+    pub fn particle_list(&self) -> &[Particle] {
+        &self.particles
+    }
+
     fn squashing_progress(&self, col: Col, row: FieldRow, now: f64) -> Option<f32> {
         self.squashing.iter().find_map(|l| {
             if l.col == col && l.row == row {
@@ -532,57 +451,11 @@ impl GameField {
             }
         })
     }
-
-    pub fn particle_list(&self) -> &[Particle] {
-        &self.particles
-    }
-
-    fn spawn_particles(&mut self, puyo: Puyo, col: Col, row: VisibleRow) {
-        let color = puyo_color(puyo);
-        for _ in 0..PARTICLE_COUNT {
-            let angle = rand::gen_range(0.0f32, 2.0 * std::f32::consts::PI);
-            let speed = rand::gen_range(PARTICLE_SPEED_MIN, PARTICLE_SPEED_MAX);
-            self.particles.push(Particle {
-                color,
-                col: col.index() as f32,
-                row: row.index() as f32,
-                vcol: angle.cos() * speed,
-                vrow: angle.sin() * speed,
-                size: rand::gen_range(PARTICLE_SIZE_MIN, PARTICLE_SIZE_MAX),
-                lifetime: SPARKLE_DURATION as f32,
-                elapsed: 0.0,
-            });
-        }
-    }
 }
 
-pub struct PlayContext {
-    pub play_state: PlayState,
-    last_drop_time: f64,
-    last_frame_time: f64, // 直前の tick の時刻（dt 計算用）
-    last_move_time: f64,
-    move_repeating: bool, // リピート移動が開始されているか
-    settling_start: f64,  // 接地待ち開始時刻
-    last_failed_rotation: Option<(Rotation, f64)>, // クイックターン判定用
-}
-
-impl PlayContext {
-    pub fn new() -> Self {
-        let now = get_time();
-        PlayContext {
-            play_state: PlayState::Active,
-            last_drop_time: now,
-            last_frame_time: now,
-            last_move_time: 0.0,
-            move_repeating: false,
-            settling_start: 0.0,
-            last_failed_rotation: None,
-        }
-    }
-}
+// --- GameField: tick（状態遷移） ---
 
 impl GameField {
-    /// 戻り値: ゲームオーバーなら false
     pub fn tick(&mut self, ctx: &mut PlayContext, now: f64) {
         let dt = (now - ctx.last_frame_time).clamp(0.0, 0.1);
         ctx.last_frame_time = now;
@@ -593,7 +466,7 @@ impl GameField {
             PlayState::Squashing => self.tick_squashing(ctx, now),
             PlayState::Blinking => self.tick_blinking(ctx, now),
             PlayState::Sparkling => self.tick_sparkling(ctx, now, dt),
-            PlayState::Landed => self.tick_landed(ctx, now), // ゲームオーバー判定があるので特別扱い
+            PlayState::Landed => self.tick_landed(ctx, now),
         }
     }
 
@@ -737,6 +610,161 @@ impl GameField {
         ctx.play_state = PlayState::Active;
         ctx.last_drop_time = now;
     }
+}
+
+// --- GameField: 操作（移動・回転） ---
+
+impl GameField {
+    fn child_position(&self) -> Position {
+        let (dc, dr) = self.puyopuyo.orientation().offset();
+        Position::new(
+            (self.position.col as isize + dc) as usize,
+            (self.position.row as isize + dr) as usize,
+        )
+    }
+
+    fn is_grounded(&self) -> bool {
+        !self.can_move((0, 1))
+    }
+
+    fn can_move(&self, (dc, dr): (isize, isize)) -> bool {
+        let (child_dc, child_dr) = self.puyopuyo.orientation().offset();
+        let new_pos = (
+            self.position.col as isize + dc,
+            self.position.row as isize + dr,
+        );
+        let new_child = (new_pos.0 + child_dc, new_pos.1 + child_dr);
+        self.can_pass(new_pos) && self.can_pass(new_child)
+    }
+
+    fn can_pass(&self, (col, row): (isize, isize)) -> bool {
+        col >= 0
+            && col < COLS as isize
+            && row >= 0
+            && row < TOTAL_ROWS as isize
+            && self.field[row as usize][col as usize].is_none()
+    }
+
+    fn move_left(&mut self) {
+        if self.can_move((-1, 0)) {
+            self.position.col -= 1;
+        }
+    }
+
+    fn move_right(&mut self) {
+        if self.can_move((1, 0)) {
+            self.position.col += 1;
+        }
+    }
+
+    fn move_down(&mut self) -> bool {
+        if self.can_move((0, 1)) {
+            self.position.row += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn rotate(&mut self, rotation: Rotation, is_quick: bool) -> bool {
+        let (col, row) = (self.position.col as isize, self.position.row as isize);
+        let new_ori = if is_quick {
+            self.puyopuyo
+                .orientation()
+                .rotate(rotation)
+                .rotate(rotation)
+        } else {
+            self.puyopuyo.orientation().rotate(rotation)
+        };
+        let (new_dc, new_dr) = new_ori.offset();
+        // キックの例（Up → Right 時計回り回転, A=軸 C=子 X=障害物 |=壁）
+        //
+        // 1. そのまま回転OK（new_child が空き）
+        //    [C]
+        //    [A]      →  [A][C]
+        //
+        // 2. 通常キック（new_child が壁、kick_to が空き → 軸を子の反対方向に移動）
+        //    [C]|              |
+        //    [A]|     →  [A][C]|    ※ 子が元の軸位置に来る
+        //
+        // 3. 上キック（new_child も kick_to も塞がれ → 軸を1段上に移動）
+        //   |[C]          |[A][C]
+        //   |[A][X]  →   |   [X]
+        let new_child = (col + new_dc, row + new_dr);
+        let kick_to = (col - new_dc, row - new_dr);
+
+        if self.can_pass(new_child) {
+            // そのまま回転OK
+        } else if self.can_pass(kick_to) {
+            // 通常キック（軸を反対方向に）
+            self.position.col = kick_to.0 as usize;
+            self.position.row = kick_to.1 as usize;
+        } else {
+            let up_axis = (col, row - 1);
+            let up_child = (col + new_dc, row - 1 + new_dr);
+            if !self.can_pass(up_axis) || !self.can_pass(up_child) {
+                return false;
+            }
+            // 上キック（軸を1段上に）
+            self.position.row -= 1;
+        }
+        self.puyopuyo.set_orientation(new_ori);
+        true
+    }
+
+    fn handle_move_keys(&mut self, ctx: &mut PlayContext, now: f64) {
+        let dirs = [KeyCode::Left, KeyCode::Right, KeyCode::Down];
+        let just_pressed = dirs.iter().any(|&k| is_key_pressed(k));
+        let held = dirs.iter().any(|&k| is_key_down(k));
+
+        if !held {
+            ctx.move_repeating = false;
+            return;
+        }
+
+        let interval = if ctx.move_repeating {
+            MOVE_INTERVAL
+        } else {
+            MOVE_REPEAT_DELAY
+        };
+        if !just_pressed && now - ctx.last_move_time <= interval {
+            return;
+        }
+
+        if is_key_down(KeyCode::Left) {
+            self.move_left();
+        }
+        if is_key_down(KeyCode::Right) {
+            self.move_right();
+        }
+        if is_key_down(KeyCode::Down) {
+            self.move_down();
+        }
+        ctx.last_move_time = now;
+        ctx.move_repeating = !just_pressed;
+    }
+
+    fn handle_rotate_keys(&mut self, ctx: &mut PlayContext, now: f64) {
+        if is_key_pressed(KeyCode::X) {
+            self.try_rotate(ctx, Rotation::Right, now);
+        }
+        if is_key_pressed(KeyCode::Z) {
+            self.try_rotate(ctx, Rotation::Left, now);
+        }
+    }
+
+    fn try_rotate(&mut self, ctx: &mut PlayContext, rotation: Rotation, now: f64) {
+        let is_quick = matches!(
+            ctx.last_failed_rotation,
+            Some((r, t)) if r == rotation && now - t < QUICK_TURN_WINDOW
+        );
+
+        if self.rotate(rotation, is_quick) {
+            ctx.last_failed_rotation = None;
+        } else {
+            ctx.last_failed_rotation = Some((rotation, now));
+        }
+    }
 
     /// 表示位置・角度を論理値に向かって補間
     fn update_display(&mut self, dt: f64) {
@@ -754,6 +782,26 @@ impl GameField {
             diff += 2.0 * std::f64::consts::PI;
         }
         self.display_angle += diff * rot_factor;
+    }
+}
+
+// --- GameField: フィールド操作（落下・連鎖・パーティクル） ---
+
+impl GameField {
+    /// 幽霊行を除いた見える部分のフィールドを返す
+    pub fn visible_field(&self) -> &[[Option<Puyo>; COLS]] {
+        &self.field[GHOST_ROWS..]
+    }
+
+    // ネクストぷよに切り替え
+    fn spawn_next(&mut self) {
+        self.puyopuyo = self.next;
+        self.next = self.next_next;
+        self.next_next = PuyoPuyo::new();
+        self.position = INITIAL_POSITION;
+        self.display_col = INITIAL_POSITION.col as f64;
+        self.display_row = INITIAL_POSITION.row as f64;
+        self.display_angle = Orientation::Up.to_angle();
     }
 
     /// ぷよのリストを受け取り、着地先を計算して dropping に追加
@@ -810,57 +858,21 @@ impl GameField {
         floating
     }
 
-    fn handle_move_keys(&mut self, ctx: &mut PlayContext, now: f64) {
-        let dirs = [KeyCode::Left, KeyCode::Right, KeyCode::Down];
-        let just_pressed = dirs.iter().any(|&k| is_key_pressed(k));
-        let held = dirs.iter().any(|&k| is_key_down(k));
-
-        if !held {
-            ctx.move_repeating = false;
-            return;
-        }
-
-        let interval = if ctx.move_repeating {
-            MOVE_INTERVAL
-        } else {
-            MOVE_REPEAT_DELAY
-        };
-        if !just_pressed && now - ctx.last_move_time <= interval {
-            return;
-        }
-
-        if is_key_down(KeyCode::Left) {
-            self.move_left();
-        }
-        if is_key_down(KeyCode::Right) {
-            self.move_right();
-        }
-        if is_key_down(KeyCode::Down) {
-            self.move_down();
-        }
-        ctx.last_move_time = now;
-        ctx.move_repeating = !just_pressed;
-    }
-
-    fn handle_rotate_keys(&mut self, ctx: &mut PlayContext, now: f64) {
-        if is_key_pressed(KeyCode::X) {
-            self.try_rotate(ctx, Rotation::Right, now);
-        }
-        if is_key_pressed(KeyCode::Z) {
-            self.try_rotate(ctx, Rotation::Left, now);
-        }
-    }
-
-    fn try_rotate(&mut self, ctx: &mut PlayContext, rotation: Rotation, now: f64) {
-        let is_quick = matches!(
-            ctx.last_failed_rotation,
-            Some((r, t)) if r == rotation && now - t < QUICK_TURN_WINDOW
-        );
-
-        if self.rotate(rotation, is_quick) {
-            ctx.last_failed_rotation = None;
-        } else {
-            ctx.last_failed_rotation = Some((rotation, now));
+    fn spawn_particles(&mut self, puyo: Puyo, col: Col, row: VisibleRow) {
+        let color = puyo_color(puyo);
+        for _ in 0..PARTICLE_COUNT {
+            let angle = rand::gen_range(0.0f32, 2.0 * std::f32::consts::PI);
+            let speed = rand::gen_range(PARTICLE_SPEED_MIN, PARTICLE_SPEED_MAX);
+            self.particles.push(Particle {
+                color,
+                col: col.index() as f32,
+                row: row.index() as f32,
+                vcol: angle.cos() * speed,
+                vrow: angle.sin() * speed,
+                size: rand::gen_range(PARTICLE_SIZE_MIN, PARTICLE_SIZE_MAX),
+                lifetime: SPARKLE_DURATION as f32,
+                elapsed: 0.0,
+            });
         }
     }
 
