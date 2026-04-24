@@ -111,6 +111,16 @@ impl Position {
     }
 }
 
+/// 列番号（0 = 左端）
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Col(usize);
+
+impl Col {
+    pub fn index(self) -> usize {
+        self.0
+    }
+}
+
 /// 幽霊行を含むフィールド全体での行番号（0 = 最上幽霊行）
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct FieldRow(usize);
@@ -205,14 +215,14 @@ pub struct DrawPuyo {
 
 pub struct DroppingPuyo {
     pub puyo: Puyo,
-    pub col: usize,
+    pub col: Col,
     pub row: f64,      // 現在の表示位置
     target_row: usize, // 着地する行
     velocity: f64,     // 落下速度（rows/s）
 }
 
 impl DroppingPuyo {
-    pub fn new(puyo: Puyo, col: usize, row: f64, target_row: usize) -> Self {
+    pub fn new(puyo: Puyo, col: Col, row: f64, target_row: usize) -> Self {
         DroppingPuyo {
             puyo,
             col,
@@ -224,20 +234,20 @@ impl DroppingPuyo {
 }
 
 pub struct SquashingPuyo {
-    pub col: usize,
+    pub col: Col,
     pub row: FieldRow,
     pub start_time: f64,
 }
 
 pub struct BlinkingPuyo {
-    pub col: usize,
+    pub col: Col,
     pub row: VisibleRow,
     pub start_time: f64,
 }
 
 pub struct SparklingPuyo {
     pub puyo: Puyo,
-    pub col: usize,
+    pub col: Col,
     pub row: VisibleRow,
 }
 
@@ -447,11 +457,12 @@ impl GameField {
         for row in 0..ROWS {
             for col in 0..COLS {
                 if let Some(puyo) = cells[row][col] {
+                    let c = Col(col);
                     let mut effect = DrawEffect::default();
-                    if let Some(p) = self.squashing_progress(col, VisibleRow(row).to_field(), now) {
+                    if let Some(p) = self.squashing_progress(c, VisibleRow(row).to_field(), now) {
                         effect = effect.squash(p);
                     }
-                    if let Some(p) = self.blinking_progress(col, VisibleRow(row), now) {
+                    if let Some(p) = self.blinking_progress(c, VisibleRow(row), now) {
                         effect = effect.blink(p);
                     }
                     if !effect.visible {
@@ -492,7 +503,7 @@ impl GameField {
             if f.row >= (GHOST_ROWS as f64) - 0.5 {
                 list.push(DrawPuyo {
                     puyo: f.puyo,
-                    col: f.col as f32,
+                    col: f.col.index() as f32,
                     row: (f.row - GHOST_ROWS as f64) as f32,
                     effect: DrawEffect::default(),
                 });
@@ -502,7 +513,7 @@ impl GameField {
         list
     }
 
-    fn squashing_progress(&self, col: usize, row: FieldRow, now: f64) -> Option<f32> {
+    fn squashing_progress(&self, col: Col, row: FieldRow, now: f64) -> Option<f32> {
         self.squashing.iter().find_map(|l| {
             if l.col == col && l.row == row {
                 Some(((now - l.start_time) / SQUASHING_ANIM_DURATION).clamp(0.0, 1.0) as f32)
@@ -512,7 +523,7 @@ impl GameField {
         })
     }
 
-    fn blinking_progress(&self, col: usize, row: VisibleRow, now: f64) -> Option<f32> {
+    fn blinking_progress(&self, col: Col, row: VisibleRow, now: f64) -> Option<f32> {
         self.blinking.iter().find_map(|l| {
             if l.col == col && l.row == row {
                 Some(((now - l.start_time) / BLINK_DURATION).clamp(0.0, 1.0) as f32)
@@ -526,14 +537,14 @@ impl GameField {
         &self.particles
     }
 
-    fn spawn_particles(&mut self, puyo: Puyo, col: usize, row: VisibleRow) {
+    fn spawn_particles(&mut self, puyo: Puyo, col: Col, row: VisibleRow) {
         let color = puyo_color(puyo);
         for _ in 0..PARTICLE_COUNT {
             let angle = rand::gen_range(0.0f32, 2.0 * std::f32::consts::PI);
             let speed = rand::gen_range(PARTICLE_SPEED_MIN, PARTICLE_SPEED_MAX);
             self.particles.push(Particle {
                 color,
-                col: col as f32,
+                col: col.index() as f32,
                 row: row.index() as f32,
                 vcol: angle.cos() * speed,
                 vrow: angle.sin() * speed,
@@ -622,7 +633,12 @@ impl GameField {
         } else if now - ctx.settling_start > LOCK_DELAY
             && (self.display_row - self.position.row as f64).abs() < 0.05
         {
-            self.start_dropping();
+            let axis = self.position;
+            let child = self.child_position();
+            self.start_dropping(vec![
+                (self.puyopuyo.axis(), Col(axis.col), FieldRow(axis.row)),
+                (self.puyopuyo.child(), Col(child.col), FieldRow(child.row)),
+            ]);
             ctx.play_state = PlayState::Dropping;
         }
     }
@@ -635,7 +651,7 @@ impl GameField {
             f.row += f.velocity * dt;
             if f.row >= f.target_row as f64 {
                 let f = self.dropping.remove(i);
-                self.field[f.target_row][f.col] = Some(f.puyo);
+                self.field[f.target_row][f.col.index()] = Some(f.puyo);
                 self.squashing.push(SquashingPuyo {
                     col: f.col,
                     row: FieldRow(f.target_row),
@@ -660,14 +676,15 @@ impl GameField {
                 for col in 0..COLS {
                     if let Some(puyo) = chained[row][col] {
                         let vrow = VisibleRow(row);
+                        let vcol = Col(col);
                         self.blinking.push(BlinkingPuyo {
-                            col,
+                            col: vcol,
                             row: vrow,
                             start_time: now,
                         });
                         self.sparkling.push(SparklingPuyo {
                             puyo,
-                            col,
+                            col: vcol,
                             row: vrow,
                         });
                     }
@@ -688,7 +705,7 @@ impl GameField {
             // フィールドからぷよを除去してパーティクルを生成
             let sparkling: Vec<_> = self.sparkling.drain(..).collect();
             for sp in sparkling {
-                self.field[sp.row.to_field().index()][sp.col] = None;
+                self.field[sp.row.to_field().index()][sp.col.index()] = None;
                 self.spawn_particles(sp.puyo, sp.col, sp.row);
             }
             ctx.play_state = PlayState::Sparkling;
@@ -701,7 +718,25 @@ impl GameField {
         }
         self.particles.retain(|p| p.alive());
         if self.particles.is_empty() {
-            ctx.play_state = PlayState::Landed;
+            // 各列で空きより上のぷよを全て集めて落とす
+            let mut falling = Vec::new();
+            for col in 0..COLS {
+                let c = Col(col);
+                let Some(bottom) = self.landing_row(c) else {
+                    continue;
+                };
+                for row in (0..bottom.index()).rev() {
+                    if let Some(puyo) = self.field[row][col].take() {
+                        falling.push((puyo, c, FieldRow(row)));
+                    }
+                }
+            }
+            if falling.is_empty() {
+                ctx.play_state = PlayState::Landed;
+            } else {
+                self.start_dropping(falling);
+                ctx.play_state = PlayState::Dropping;
+            }
         }
     }
 
@@ -733,54 +768,41 @@ impl GameField {
         self.display_angle += diff * rot_factor;
     }
 
-    /// 組ぷよを dropping に積んでちぎりを開始
-    fn start_dropping(&mut self) {
-        let axis_col = self.position.col;
-        let axis_row = self.position.row;
-        let child = self.child_position();
-        let axis_puyo = self.puyopuyo.axis();
-        let child_puyo = self.puyopuyo.child();
+    /// ぷよのリストを受け取り、着地先を計算して dropping に追加
+    /// 落下不要（下に空白がない）なら直接フィールドに配置する
+    fn start_dropping(&mut self, mut falling: Vec<(Puyo, Col, FieldRow)>) {
+        // 同じ列内では下のぷよから先に着地先を割り当てる
+        falling.sort_by(|a, b| {
+            a.1.index()
+                .cmp(&b.1.index())
+                .then(b.2.index().cmp(&a.2.index()))
+        });
 
-        if axis_col == child.col {
-            // 同じ列: 下のぷよから順に target を割り当てる
-            let col = axis_col;
-            let mut bottom = self.bottom_empty(col);
-            let (lower_puyo, lower_row, upper_puyo, upper_row) = if axis_row > child.row {
-                (axis_puyo, axis_row, child_puyo, child.row)
-            } else {
-                (child_puyo, child.row, axis_puyo, axis_row)
+        let mut offsets = [0usize; COLS];
+        for (puyo, col, row) in falling {
+            let ci = col.index();
+            let Some(landing) = self.landing_row(col) else {
+                continue;
             };
-            self.dropping
-                .push(DroppingPuyo::new(lower_puyo, col, lower_row as f64, bottom));
-            bottom = bottom.saturating_sub(1);
-            self.dropping
-                .push(DroppingPuyo::new(upper_puyo, col, upper_row as f64, bottom));
-        } else {
-            // 別の列: 独立に target を計算
-            let axis_target = self.bottom_empty(axis_col);
-            let child_target = self.bottom_empty(child.col);
-            self.dropping.push(DroppingPuyo::new(
-                axis_puyo,
-                axis_col,
-                axis_row as f64,
-                axis_target,
-            ));
-            self.dropping.push(DroppingPuyo::new(
-                child_puyo,
-                child.col,
-                child.row as f64,
-                child_target,
-            ));
+            let target = landing.index() - offsets[ci];
+            if target <= row.index() {
+                // 着地先が現在位置以上なら直接配置（上に落ちることはない）
+                self.field[target][ci] = Some(puyo);
+            } else {
+                offsets[ci] += 1;
+                self.dropping
+                    .push(DroppingPuyo::new(puyo, col, row.index() as f64, target));
+            }
         }
     }
 
-    fn bottom_empty(&self, col: usize) -> usize {
-        for r in (0..TOTAL_ROWS).rev() {
-            if self.field[r][col].is_none() {
-                return r;
-            }
-        }
-        0
+    /// 指定列の着地可能な最下行を返す（全て埋まっている場合は None）
+    fn landing_row(&self, col: Col) -> Option<FieldRow> {
+        let ci = col.index();
+        (0..TOTAL_ROWS)
+            .rev()
+            .find(|&r| self.field[r][ci].is_none())
+            .map(FieldRow)
     }
 
     fn handle_move_keys(&mut self, ctx: &mut PlayContext, now: f64) {
