@@ -315,6 +315,7 @@ pub struct PlayContext {
     last_move_time: f64,
     move_repeating: bool, // リピート移動が開始されているか
     settling_start: f64,  // 接地待ち開始時刻
+    sparkle_start: f64,   // パーティクル開始時刻
     last_failed_rotation: Option<(Rotation, f64)>, // クイックターン判定用
 }
 
@@ -328,6 +329,7 @@ impl PlayContext {
             last_move_time: 0.0,
             move_repeating: false,
             settling_start: 0.0,
+            sparkle_start: 0.0,
             last_failed_rotation: None,
         }
     }
@@ -463,7 +465,7 @@ impl GameField {
             PlayState::Dropping => self.tick_dropping(ctx, now),
             PlayState::Squashing => self.tick_squashing(ctx, now),
             PlayState::Blinking => self.tick_blinking(ctx, now),
-            PlayState::Sparkling => self.tick_sparkling(ctx),
+            PlayState::Sparkling => self.tick_sparkling(ctx, now),
             PlayState::Landed => self.tick_landed(ctx, now),
         }
     }
@@ -574,12 +576,13 @@ impl GameField {
                 self.field[sp.row.to_field().index()][sp.col.index()] = None;
                 self.spawn_particles(sp.puyo, sp.col, sp.row);
             }
+            ctx.sparkle_start = now;
             ctx.play_state = PlayState::Sparkling;
         }
     }
 
-    fn tick_sparkling(&mut self, ctx: &mut PlayContext) {
-        if self.particles.is_empty() {
+    fn tick_sparkling(&mut self, ctx: &mut PlayContext, now: f64) {
+        if now - ctx.sparkle_start >= SPARKLE_WAIT {
             let floating = self.collect_floating();
             if floating.is_empty() {
                 ctx.play_state = PlayState::Landed;

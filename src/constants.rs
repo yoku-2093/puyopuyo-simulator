@@ -23,6 +23,7 @@ pub const SQUASHING_ANIM_DURATION: f64 = 0.15; // 着地スカッシュの長さ
 pub const SQUASHING_SQUASH_RATIO: f32 = 0.3; // 縦の潰れの最大量（0.3 = 30%縮む）
 pub const BLINK_DURATION: f64 = 0.5; // 点滅の長さ
 pub const SPARKLE_DURATION: f64 = 0.5; // キラキラの長さ
+pub const SPARKLE_WAIT: f64 = 0.15; // パーティクル開始から落下開始までの待ち
 pub const BLINK_COUNT: u32 = 5; // 点滅回数
 pub const PARTICLE_COUNT: usize = 4; // 1ぷよあたりのパーティクル数
 pub const PARTICLE_SPEED_MIN: f32 = 3.0; // パーティクルの最低速度（グリッド/秒）
