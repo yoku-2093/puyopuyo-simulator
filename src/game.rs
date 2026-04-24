@@ -457,41 +457,37 @@ impl GameField {
 
 impl GameField {
     pub fn tick(&mut self, ctx: &mut PlayContext, now: f64) {
-        let dt = (now - ctx.last_frame_time).clamp(0.0, 0.1);
-        ctx.last_frame_time = now;
         match ctx.play_state {
-            PlayState::Active => self.tick_active(ctx, now, dt),
-            PlayState::Settling => self.tick_settling(ctx, now, dt),
-            PlayState::Dropping => self.tick_dropping(ctx, now, dt),
+            PlayState::Active => self.tick_active(ctx, now),
+            PlayState::Settling => self.tick_settling(ctx, now),
+            PlayState::Dropping => self.tick_dropping(ctx, now),
             PlayState::Squashing => self.tick_squashing(ctx, now),
             PlayState::Blinking => self.tick_blinking(ctx, now),
-            PlayState::Sparkling => self.tick_sparkling(ctx, now, dt),
+            PlayState::Sparkling => self.tick_sparkling(ctx),
             PlayState::Landed => self.tick_landed(ctx, now),
         }
     }
 
-    fn tick_active(&mut self, ctx: &mut PlayContext, now: f64, dt: f64) {
+    fn tick_active(&mut self, ctx: &mut PlayContext, now: f64) {
         if now - ctx.last_drop_time > DROP_INTERVAL {
             self.move_down();
             ctx.last_drop_time = now;
         }
         self.handle_move_keys(ctx, now);
         self.handle_rotate_keys(ctx, now);
-        self.update_display(dt);
         if self.is_grounded() {
             ctx.play_state = PlayState::Settling;
             ctx.settling_start = now;
         }
     }
 
-    fn tick_settling(&mut self, ctx: &mut PlayContext, now: f64, dt: f64) {
+    fn tick_settling(&mut self, ctx: &mut PlayContext, now: f64) {
         let prev_col = self.position.col;
         let prev_row = self.position.row;
         let prev_ori = self.puyopuyo.orientation();
 
         self.handle_move_keys(ctx, now);
         self.handle_rotate_keys(ctx, now);
-        self.update_display(dt);
 
         // 操作で位置や向きが変わったら猶予をリセット
         if self.position.col != prev_col
@@ -516,13 +512,10 @@ impl GameField {
         }
     }
 
-    fn tick_dropping(&mut self, ctx: &mut PlayContext, now: f64, dt: f64) {
+    fn tick_dropping(&mut self, ctx: &mut PlayContext, now: f64) {
         let mut i = 0;
         while i < self.dropping.len() {
-            let f = &mut self.dropping[i];
-            f.velocity += DROP_GRAVITY * dt;
-            f.row += f.velocity * dt;
-            if f.row >= f.target_row as f64 {
+            if self.dropping[i].row >= self.dropping[i].target_row as f64 {
                 let f = self.dropping.remove(i);
                 self.field[f.target_row][f.col.index()] = Some(f.puyo);
                 self.squashing.push(SquashingPuyo {
@@ -585,11 +578,7 @@ impl GameField {
         }
     }
 
-    fn tick_sparkling(&mut self, ctx: &mut PlayContext, _now: f64, dt: f64) {
-        for p in &mut self.particles {
-            p.tick(dt as f32);
-        }
-        self.particles.retain(|p| p.alive());
+    fn tick_sparkling(&mut self, ctx: &mut PlayContext) {
         if self.particles.is_empty() {
             let floating = self.collect_floating();
             if floating.is_empty() {
@@ -765,23 +754,45 @@ impl GameField {
             ctx.last_failed_rotation = Some((rotation, now));
         }
     }
+}
 
-    /// 表示位置・角度を論理値に向かって補間
-    fn update_display(&mut self, dt: f64) {
-        let move_factor = (DISPLAY_CHASE_RATE * dt).min(1.0);
-        self.display_col += (self.position.col as f64 - self.display_col) * move_factor;
-        self.display_row += (self.position.row as f64 - self.display_row) * move_factor;
+// --- GameField: フレーム更新（表示補間・落下物理・パーティクル） ---
 
-        let rot_factor = (ROTATION_CHASE_RATE * dt).min(1.0);
-        let target = self.puyopuyo.orientation().to_angle();
-        let mut diff = target - self.display_angle;
-        if diff > std::f64::consts::PI {
-            diff -= 2.0 * std::f64::consts::PI;
+impl GameField {
+    pub fn update(&mut self, ctx: &mut PlayContext, now: f64) {
+        let dt = (now - ctx.last_frame_time).clamp(0.0, 0.1);
+
+        // 操作中のぷよの表示位置・角度を補間
+        if matches!(ctx.play_state, PlayState::Active | PlayState::Settling) {
+            let move_factor = (DISPLAY_CHASE_RATE * dt).min(1.0);
+            self.display_col += (self.position.col as f64 - self.display_col) * move_factor;
+            self.display_row += (self.position.row as f64 - self.display_row) * move_factor;
+
+            let rot_factor = (ROTATION_CHASE_RATE * dt).min(1.0);
+            let target = self.puyopuyo.orientation().to_angle();
+            let mut diff = target - self.display_angle;
+            if diff > std::f64::consts::PI {
+                diff -= 2.0 * std::f64::consts::PI;
+            }
+            if diff < -std::f64::consts::PI {
+                diff += 2.0 * std::f64::consts::PI;
+            }
+            self.display_angle += diff * rot_factor;
         }
-        if diff < -std::f64::consts::PI {
-            diff += 2.0 * std::f64::consts::PI;
+
+        // 落下中のぷよの物理演算
+        for f in &mut self.dropping {
+            f.velocity += DROP_GRAVITY * dt;
+            f.row += f.velocity * dt;
         }
-        self.display_angle += diff * rot_factor;
+
+        // パーティクル
+        for p in &mut self.particles {
+            p.tick(dt as f32);
+        }
+        self.particles.retain(|p| p.alive());
+
+        ctx.last_frame_time = now;
     }
 }
 

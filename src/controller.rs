@@ -52,6 +52,7 @@ impl Controller {
         };
 
         field.tick(&mut self.ctx, now);
+        field.update(&mut self.ctx, now);
 
         if field.is_game_over() {
             self.screen = Screen::GameOver;
