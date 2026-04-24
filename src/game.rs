@@ -718,23 +718,11 @@ impl GameField {
         }
         self.particles.retain(|p| p.alive());
         if self.particles.is_empty() {
-            // 各列で空きより上のぷよを全て集めて落とす
-            let mut falling = Vec::new();
-            for col in 0..COLS {
-                let c = Col(col);
-                let Some(bottom) = self.landing_row(c) else {
-                    continue;
-                };
-                for row in (0..bottom.index()).rev() {
-                    if let Some(puyo) = self.field[row][col].take() {
-                        falling.push((puyo, c, FieldRow(row)));
-                    }
-                }
-            }
-            if falling.is_empty() {
+            let floating = self.collect_floating();
+            if floating.is_empty() {
                 ctx.play_state = PlayState::Landed;
             } else {
-                self.start_dropping(falling);
+                self.start_dropping(floating);
                 ctx.play_state = PlayState::Dropping;
             }
         }
@@ -803,6 +791,23 @@ impl GameField {
             .rev()
             .find(|&r| self.field[r][ci].is_none())
             .map(FieldRow)
+    }
+
+    /// フィールドから浮いているぷよを集めて返す（フィールドからは除去される）
+    fn collect_floating(&mut self) -> Vec<(Puyo, Col, FieldRow)> {
+        let mut floating = Vec::new();
+        for col in 0..COLS {
+            let c = Col(col);
+            let Some(bottom) = self.landing_row(c) else {
+                continue;
+            };
+            for row in (0..bottom.index()).rev() {
+                if let Some(puyo) = self.field[row][col].take() {
+                    floating.push((puyo, c, FieldRow(row)));
+                }
+            }
+        }
+        floating
     }
 
     fn handle_move_keys(&mut self, ctx: &mut PlayContext, now: f64) {
