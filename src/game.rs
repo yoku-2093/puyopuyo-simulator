@@ -9,7 +9,8 @@ pub const ROWS: usize = 12; // 見えているフィールドの行数
 const DROP_INTERVAL: f64 = 0.3;
 const MOVE_INTERVAL: f64 = 0.05;
 const MOVE_REPEAT_DELAY: f64 = 0.2; // 初回入力からリピート開始までの猶予
-const LOCK_DELAY: f64 = 0.25; // 接地から固定までの猶予
+const LOCK_DELAY: f64 = 0.40; // 接地から固定までの猶予
+const LOCK_DELAY_FAST: f64 = 0.10; // 下キー押下時の固定猶予
 const QUICK_TURN_WINDOW: f64 = 0.3;
 const DROP_GRAVITY: f64 = 50.0; // ちぎり時の重力加速度（rows/s^2）
 const DROP_GRAVITY_INITIAL: f64 = 5.0; // ちぎり開始時の初速（rows/s）
@@ -534,9 +535,10 @@ impl GameField {
             ctx.settling_start = now;
         }
 
+        let delay = if is_key_down(KeyCode::Down) { LOCK_DELAY_FAST } else { LOCK_DELAY };
         if !self.is_grounded() {
             ctx.play_state = PlayState::Active;
-        } else if now - ctx.settling_start > LOCK_DELAY
+        } else if now - ctx.settling_start > delay
             && (self.display_row - self.position.row as f64).abs() < 0.05
         {
             let axis = self.position;
