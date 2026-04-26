@@ -301,6 +301,8 @@ pub struct GameField {
     next_next: PuyoPuyo,                       // 次の次のぷよ
     field: [[Option<Puyo>; COLS]; TOTAL_ROWS], // フィールド（幽霊行を含む）
     is_game_over: bool,
+    score: u32,                    // スコア
+    chain_count: u32,              // 現在の連鎖数
     dropping: Vec<DroppingPuyo>,   // ちぎり中のぷよ
     squashing: Vec<SquashingPuyo>, // 着地直後でぷよが潰れるアニメ中
     blinking: Vec<BlinkingPuyo>,   // 点滅中のぷよ
@@ -349,6 +351,8 @@ impl GameField {
             next_next: PuyoPuyo::new(),
             field: [[None; COLS]; TOTAL_ROWS],
             is_game_over: false,
+            score: 0,
+            chain_count: 0,
             dropping: Vec::new(),
             squashing: Vec::new(),
             blinking: Vec::new(),
@@ -359,6 +363,10 @@ impl GameField {
 
     pub fn is_game_over(&self) -> bool {
         self.is_game_over
+    }
+
+    pub fn score(&self) -> u32 {
+        self.score
     }
 }
 
@@ -539,28 +547,28 @@ impl GameField {
             .retain(|l| now - l.start_time < SQUASHING_ANIM_DURATION);
         if self.squashing.is_empty() {
             // 連鎖判定
-            let chained: [[Option<Puyo>; COLS]; ROWS] = self.chained_puyos();
-            for row in 0..ROWS {
-                for col in 0..COLS {
-                    if let Some(puyo) = chained[row][col] {
-                        let vrow = VisibleRow(row);
-                        let vcol = Col(col);
-                        self.blinking.push(BlinkingPuyo {
-                            col: vcol,
-                            row: vrow,
-                            start_time: now,
-                        });
-                        self.sparkling.push(SparklingPuyo {
-                            puyo,
-                            col: vcol,
-                            row: vrow,
-                        });
-                    }
+            let groups = self.find_chain_groups();
+            for (puyo, cells) in &groups {
+                for &(col, row) in cells {
+                    let vcol = Col(col);
+                    let vrow = VisibleRow(row);
+                    self.blinking.push(BlinkingPuyo {
+                        col: vcol,
+                        row: vrow,
+                        start_time: now,
+                    });
+                    self.sparkling.push(SparklingPuyo {
+                        puyo: *puyo,
+                        col: vcol,
+                        row: vrow,
+                    });
                 }
             }
-            if self.blinking.is_empty() {
+            if groups.is_empty() {
+                self.chain_count = 0;
                 ctx.play_state = PlayState::Landed;
             } else {
+                self.add_chain_score(&groups);
                 ctx.play_state = PlayState::Blinking;
             }
         }
@@ -594,6 +602,8 @@ impl GameField {
     }
 
     fn tick_landed(&mut self, ctx: &mut PlayContext, now: f64) {
+        self.chain_count = 0;
+
         if self.field[INITIAL_POSITION.row][INITIAL_POSITION.col].is_some() {
             self.is_game_over = true;
         }
@@ -818,6 +828,75 @@ impl GameField {
         self.display_angle = Orientation::Up.to_angle();
     }
 
+    /// スコア加算: (消したぷよ数 × 10) × max(1, 連鎖ボーナス + 色ボーナス + グループボーナス)
+    fn add_chain_score(&mut self, groups: &[(Puyo, Vec<(usize, usize)>)]) {
+        self.chain_count += 1;
+        let cleared: u32 = groups.iter().map(|(_, cells)| cells.len() as u32).sum();
+        let cp = Self::chain_power(self.chain_count);
+        let cb = Self::color_bonus(groups);
+        let gb = Self::group_bonus(groups);
+        let multiplier = (cp + cb + gb).clamp(1, 999);
+        self.score += cleared * 10 * multiplier;
+    }
+
+    /// 連鎖数に応じた連鎖パワー
+    fn chain_power(chain: u32) -> u32 {
+        match chain {
+            1 => 0,
+            2 => 8,
+            3 => 16,
+            4 => 32,
+            5 => 64,
+            6 => 96,
+            7 => 128,
+            8 => 160,
+            9 => 192,
+            10 => 224,
+            11 => 256,
+            12 => 288,
+            13 => 320,
+            14 => 352,
+            15 => 384,
+            16 => 416,
+            17 => 448,
+            18 => 480,
+            19 => 512,
+            _ => 512 + (chain - 19) * 32,
+        }
+    }
+
+    /// 同時に消えた色数に応じたボーナス
+    fn color_bonus(groups: &[(Puyo, Vec<(usize, usize)>)]) -> u32 {
+        let mut colors = std::collections::HashSet::new();
+        for (puyo, _) in groups {
+            colors.insert(*puyo);
+        }
+        match colors.len() {
+            0 | 1 => 0,
+            2 => 3,
+            3 => 6,
+            4 => 12,
+            _ => 24,
+        }
+    }
+
+    /// 各グループのサイズに応じたボーナスの合計
+    fn group_bonus(groups: &[(Puyo, Vec<(usize, usize)>)]) -> u32 {
+        groups
+            .iter()
+            .map(|(_, cells)| match cells.len() {
+                0..=4 => 0,
+                5 => 2,
+                6 => 3,
+                7 => 4,
+                8 => 5,
+                9 => 6,
+                10 => 7,
+                _ => 10,
+            })
+            .sum()
+    }
+
     /// ぷよのリストを受け取り、着地先を計算して dropping に追加
     /// 落下不要（下に空白がない）なら直接フィールドに配置する
     fn start_dropping(&mut self, mut falling: Vec<(Puyo, Col, FieldRow)>) {
@@ -890,10 +969,11 @@ impl GameField {
         }
     }
 
-    fn chained_puyos(&self) -> [[Option<Puyo>; COLS]; ROWS] {
-        let mut chained_field = [[None; COLS]; ROWS];
+    /// 4個以上つながったグループを返す: Vec<(色, セル座標リスト)>
+    fn find_chain_groups(&self) -> Vec<(Puyo, Vec<(usize, usize)>)> {
         let cells = self.visible_field();
         let mut visited = [[false; COLS]; ROWS];
+        let mut groups = Vec::new();
 
         for row in 0..ROWS {
             for col in 0..COLS {
@@ -906,13 +986,11 @@ impl GameField {
                 let mut group = Vec::new();
                 Self::flood_fill(col, row, puyo, cells, &mut visited, &mut group);
                 if group.len() >= 4 {
-                    for (c, r) in &group {
-                        chained_field[*r][*c] = cells[*r][*c];
-                    }
+                    groups.push((puyo, group));
                 }
             }
         }
-        chained_field
+        groups
     }
 
     fn flood_fill(

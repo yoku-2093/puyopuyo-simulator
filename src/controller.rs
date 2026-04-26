@@ -87,5 +87,7 @@ impl Controller {
             let color = Color::new(p.color.r, p.color.g, p.color.b, p.alpha());
             self.renderer.draw_particle(p.col, p.row, p.size, color);
         }
+
+        self.renderer.draw_score(field.score());
     }
 }

@@ -2,6 +2,8 @@ use crate::constants::*;
 use macroquad::prelude::*;
 use std::collections::HashMap;
 
+const FIELD_PADDING: f32 = 20.0;
+
 pub struct Renderer {
     textures: HashMap<Puyo, Texture2D>,
     background: Texture2D,
@@ -71,9 +73,9 @@ impl Renderer {
     pub fn draw_field(&self) {
         let field_w = PUYO_SIZE * COLS as f32;
         let field_h = PUYO_SIZE * ROWS as f32;
-        let padding = 20.0;
+        let padding = FIELD_PADDING;
         let bg_w = field_w + padding * 2.0;
-        let bg_h = field_h + padding * 2.0;
+        let bg_h = field_h + padding * 4.0;
 
         // 外枠（field_bg）をフィールドより一回り大きく描画
         draw_texture_ex(
@@ -195,5 +197,56 @@ impl Renderer {
         let y = FIELD_Y + row * PUYO_SIZE + PUYO_SIZE / 2.0;
         let r = size * PUYO_SIZE;
         draw_circle(x, y, r, color);
+    }
+
+    pub fn draw_score(&self, score: u32) {
+        let text = format!("{score:08}");
+        let font_size = 36.0;
+        let field_w = PUYO_SIZE * COLS as f32;
+        let dims = measure_text(&text, Some(&self.font), font_size as u16, 1.0);
+        let field_h = PUYO_SIZE * ROWS as f32;
+        let padding = FIELD_PADDING;
+        let field_bottom = FIELD_Y + field_h;
+        let bg_bottom = field_bottom + padding * 3.0;
+        let x = FIELD_X + field_w / 2.0 - dims.width / 2.0;
+        let y = (field_bottom + bg_bottom) / 2.0 + dims.height / 3.0;
+
+        // 縁取り（8方向にずらして黒で描画）
+        let outline = 2.0;
+        for (dx, dy) in [
+            (-outline, 0.0),
+            (outline, 0.0),
+            (0.0, -outline),
+            (0.0, outline),
+            (-outline, -outline),
+            (outline, -outline),
+            (-outline, outline),
+            (outline, outline),
+        ] {
+            draw_text_ex(
+                &text,
+                x + dx,
+                y + dy,
+                TextParams {
+                    font: Some(&self.font),
+                    font_size: font_size as u16,
+                    color: Color::new(0.0, 0.0, 0.0, 1.0),
+                    ..Default::default()
+                },
+            );
+        }
+
+        // 本体（黄色）
+        draw_text_ex(
+            &text,
+            x,
+            y,
+            TextParams {
+                font: Some(&self.font),
+                font_size: font_size as u16,
+                color: Color::new(1.0, 1.0, 0.3, 1.0),
+                ..Default::default()
+            },
+        );
     }
 }
