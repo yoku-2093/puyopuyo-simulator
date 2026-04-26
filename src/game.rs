@@ -1,9 +1,32 @@
 use crate::constants::*;
 use macroquad::prelude::*;
 
-const GHOST_ROWS: usize = 2;
-const INITIAL_POSITION: Position = Position::new(2, GHOST_ROWS);
-const TOTAL_ROWS: usize = ROWS + GHOST_ROWS;
+// 落下・移動の時間間隔（秒）
+const DROP_INTERVAL: f64 = 0.3;
+const MOVE_INTERVAL: f64 = 0.05;
+const MOVE_REPEAT_DELAY: f64 = 0.2; // 初回入力からリピート開始までの猶予
+const LOCK_DELAY: f64 = 0.25; // 接地から固定までの猶予
+const QUICK_TURN_WINDOW: f64 = 0.3;
+const DROP_GRAVITY: f64 = 50.0; // ちぎり時の重力加速度（rows/s^2）
+const DROP_GRAVITY_INITIAL: f64 = 5.0; // ちぎり開始時の初速（rows/s）
+const DISPLAY_CHASE_RATE: f64 = 40.0; // 移動の表示位置追従速度
+const ROTATION_CHASE_RATE: f64 = 20.0; // 回転の表示角度追従速度
+const SQUASHING_ANIM_DURATION: f64 = 0.15; // 着地スカッシュの長さ
+const SQUASHING_SQUASH_RATIO: f32 = 0.3; // 縦の潰れの最大量（0.3 = 30%縮む）
+const BLINK_DURATION: f64 = 0.5; // 点滅の長さ
+const SPARKLE_DURATION: f64 = 0.5; // キラキラの長さ
+const SPARKLE_WAIT: f64 = 0.15; // パーティクル開始から落下開始までの待ち
+const BLINK_COUNT: u32 = 5; // 点滅回数
+const PARTICLE_COUNT: usize = 4; // 1ぷよあたりのパーティクル数
+const PARTICLE_SPEED_MIN: f32 = 3.0; // パーティクルの最低速度（グリッド/秒）
+const PARTICLE_SPEED_MAX: f32 = 8.0; // パーティクルの最高速度
+const PARTICLE_GRAVITY: f32 = 15.0; // パーティクルの重力（グリッド/秒²）
+const PARTICLE_SIZE_MIN: f32 = 0.08; // パーティクルの最小サイズ（グリッド単位）
+const PARTICLE_SIZE_MAX: f32 = 0.18; // パーティクルの最大サイズ
+
+const GHOST_ROWS: usize = 2; // 見えない幽霊行の数
+const INITIAL_POSITION: Position = Position::new(2, GHOST_ROWS); // ぷよの初期出現位置
+const TOTAL_ROWS: usize = ROWS + GHOST_ROWS; // 幽霊行を含むフィールド全体の行数
 
 #[derive(Clone, Copy)]
 pub struct PuyoPuyo {

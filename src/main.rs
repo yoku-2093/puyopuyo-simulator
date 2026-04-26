@@ -3,13 +3,15 @@ mod controller;
 mod game;
 mod render;
 
-use constants::*;
 use controller::Controller;
 use macroquad::prelude::*;
 
+const WINDOW_WIDTH: f32 = 1200.0;
+const WINDOW_HEIGHT: f32 = 900.0;
+
 #[macroquad::main(window_conf)]
 async fn main() {
-    let mut controller = Controller::new().await;
+    let mut controller = Controller::new(WINDOW_WIDTH, WINDOW_HEIGHT).await;
 
     loop {
         clear_background(BLACK);

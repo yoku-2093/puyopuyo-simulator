@@ -2,7 +2,8 @@ use crate::constants::*;
 use macroquad::prelude::*;
 use std::collections::HashMap;
 
-const FIELD_PADDING: f32 = 20.0;
+const PUYO_SIZE: f32 = 60.0; // ぷよ1個あたりの描画サイズ（ピクセル）
+const FIELD_PADDING: f32 = 20.0; // フィールド外枠の余白（ピクセル）
 
 pub struct Renderer {
     textures: HashMap<Puyo, Texture2D>,
@@ -11,10 +12,14 @@ pub struct Renderer {
     field: Texture2D,
     font: Font,
     game_over_text: Texture2D,
+    window_width: f32,
+    window_height: f32,
+    field_x: f32,
+    field_y: f32,
 }
 
 impl Renderer {
-    pub async fn new() -> Self {
+    pub async fn new(window_width: f32, window_height: f32) -> Self {
         let puyos = [
             (Puyo::Blue, "assets/images/puyo/blue.png"),
             (Puyo::Green, "assets/images/puyo/green.png"),
@@ -47,6 +52,9 @@ impl Renderer {
         let game_over_text = load_texture("assets/images/game_over.png").await.unwrap();
         game_over_text.set_filter(FilterMode::Linear);
 
+        let field_x = (window_width - PUYO_SIZE * COLS as f32) / 2.0;
+        let field_y = (window_height - PUYO_SIZE * ROWS as f32) / 2.0;
+
         Renderer {
             textures,
             background,
@@ -54,6 +62,10 @@ impl Renderer {
             field,
             font,
             game_over_text,
+            window_width,
+            window_height,
+            field_x,
+            field_y,
         }
     }
 
@@ -64,7 +76,7 @@ impl Renderer {
             0.0,
             WHITE,
             DrawTextureParams {
-                dest_size: Some(Vec2::new(WINDOW_WIDTH, WINDOW_HEIGHT)),
+                dest_size: Some(Vec2::new(self.window_width, self.window_height)),
                 ..Default::default()
             },
         );
@@ -80,8 +92,8 @@ impl Renderer {
         // 外枠（field_bg）をフィールドより一回り大きく描画
         draw_texture_ex(
             &self.field_bg,
-            FIELD_X - padding,
-            FIELD_Y - padding,
+            self.field_x - padding,
+            self.field_y - padding,
             WHITE,
             DrawTextureParams {
                 dest_size: Some(Vec2::new(bg_w, bg_h)),
@@ -92,8 +104,8 @@ impl Renderer {
         // フィールド本体（field）を中央に描画
         draw_texture_ex(
             &self.field,
-            FIELD_X,
-            FIELD_Y,
+            self.field_x,
+            self.field_y,
             WHITE,
             DrawTextureParams {
                 dest_size: Some(Vec2::new(field_w, field_h)),
@@ -106,8 +118,8 @@ impl Renderer {
     fn draw_centered_text(&self, text: &str, font_size: f32, color: Color, y_offset: f32) {
         let field_w = PUYO_SIZE * COLS as f32;
         let field_h = PUYO_SIZE * ROWS as f32;
-        let center_x = FIELD_X + field_w / 2.0;
-        let center_y = FIELD_Y + field_h / 2.0 + y_offset;
+        let center_x = self.field_x + field_w / 2.0;
+        let center_y = self.field_y + field_h / 2.0 + y_offset;
 
         let params = TextParams {
             font: Some(&self.font),
@@ -142,8 +154,8 @@ impl Renderer {
         let field_h = PUYO_SIZE * ROWS as f32;
         // 半透明の暗幕
         draw_rectangle(
-            FIELD_X,
-            FIELD_Y,
+            self.field_x,
+            self.field_y,
             field_w,
             field_h,
             Color::new(0.0, 0.0, 0.0, 0.6),
@@ -155,8 +167,8 @@ impl Renderer {
         let tex_h = self.game_over_text.height() * scale;
         let field_w2 = PUYO_SIZE * COLS as f32;
         let field_h2 = PUYO_SIZE * ROWS as f32;
-        let cx = FIELD_X + field_w2 / 2.0 - tex_w / 2.0;
-        let cy = FIELD_Y + field_h2 / 2.0 - tex_h / 2.0;
+        let cx = self.field_x + field_w2 / 2.0 - tex_w / 2.0;
+        let cy = self.field_y + field_h2 / 2.0 - tex_h / 2.0;
         draw_texture_ex(
             &self.game_over_text,
             cx,
@@ -178,8 +190,8 @@ impl Renderer {
     pub fn draw_puyo(&self, puyo: Puyo, col: f32, row: f32, scale_x: f32, scale_y: f32) {
         let w = PUYO_SIZE * scale_x;
         let h = PUYO_SIZE * scale_y;
-        let x = FIELD_X + col * PUYO_SIZE - (w - PUYO_SIZE) / 2.0;
-        let y = FIELD_Y + row * PUYO_SIZE + (PUYO_SIZE - h);
+        let x = self.field_x + col * PUYO_SIZE - (w - PUYO_SIZE) / 2.0;
+        let y = self.field_y + row * PUYO_SIZE + (PUYO_SIZE - h);
         draw_texture_ex(
             &self.textures[&puyo],
             x,
@@ -193,8 +205,8 @@ impl Renderer {
     }
 
     pub fn draw_particle(&self, col: f32, row: f32, size: f32, color: Color) {
-        let x = FIELD_X + col * PUYO_SIZE + PUYO_SIZE / 2.0;
-        let y = FIELD_Y + row * PUYO_SIZE + PUYO_SIZE / 2.0;
+        let x = self.field_x + col * PUYO_SIZE + PUYO_SIZE / 2.0;
+        let y = self.field_y + row * PUYO_SIZE + PUYO_SIZE / 2.0;
         let r = size * PUYO_SIZE;
         draw_circle(x, y, r, color);
     }
@@ -206,9 +218,9 @@ impl Renderer {
         let dims = measure_text(&text, Some(&self.font), font_size as u16, 1.0);
         let field_h = PUYO_SIZE * ROWS as f32;
         let padding = FIELD_PADDING;
-        let field_bottom = FIELD_Y + field_h;
+        let field_bottom = self.field_y + field_h;
         let bg_bottom = field_bottom + padding * 3.0;
-        let x = FIELD_X + field_w / 2.0 - dims.width / 2.0;
+        let x = self.field_x + field_w / 2.0 - dims.width / 2.0;
         let y = (field_bottom + bg_bottom) / 2.0 + dims.height / 3.0;
 
         // 縁取り（8方向にずらして黒で描画）
