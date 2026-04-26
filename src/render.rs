@@ -1,4 +1,4 @@
-use crate::constants::*;
+use crate::types::Puyo;
 use macroquad::prelude::*;
 use std::collections::HashMap;
 
@@ -14,12 +14,14 @@ pub struct Renderer {
     game_over_text: Texture2D,
     window_width: f32,
     window_height: f32,
+    cols: usize,
+    rows: usize,
     field_x: f32,
     field_y: f32,
 }
 
 impl Renderer {
-    pub async fn new(window_width: f32, window_height: f32) -> Self {
+    pub async fn new(window_width: f32, window_height: f32, cols: usize, rows: usize) -> Self {
         let puyos = [
             (Puyo::Blue, "assets/images/puyo/blue.png"),
             (Puyo::Green, "assets/images/puyo/green.png"),
@@ -52,8 +54,8 @@ impl Renderer {
         let game_over_text = load_texture("assets/images/game_over.png").await.unwrap();
         game_over_text.set_filter(FilterMode::Linear);
 
-        let field_x = (window_width - PUYO_SIZE * COLS as f32) / 2.0;
-        let field_y = (window_height - PUYO_SIZE * ROWS as f32) / 2.0;
+        let field_x = (window_width - PUYO_SIZE * cols as f32) / 2.0;
+        let field_y = (window_height - PUYO_SIZE * rows as f32) / 2.0;
 
         Renderer {
             textures,
@@ -64,6 +66,8 @@ impl Renderer {
             game_over_text,
             window_width,
             window_height,
+            cols,
+            rows,
             field_x,
             field_y,
         }
@@ -83,8 +87,8 @@ impl Renderer {
     }
 
     pub fn draw_field(&self) {
-        let field_w = PUYO_SIZE * COLS as f32;
-        let field_h = PUYO_SIZE * ROWS as f32;
+        let field_w = PUYO_SIZE * self.cols as f32;
+        let field_h = PUYO_SIZE * self.rows as f32;
         let padding = FIELD_PADDING;
         let bg_w = field_w + padding * 2.0;
         let bg_h = field_h + padding * 4.0;
@@ -116,8 +120,8 @@ impl Renderer {
 
     /// フィールド中央にテキストを描画するヘルパー
     fn draw_centered_text(&self, text: &str, font_size: f32, color: Color, y_offset: f32) {
-        let field_w = PUYO_SIZE * COLS as f32;
-        let field_h = PUYO_SIZE * ROWS as f32;
+        let field_w = PUYO_SIZE * self.cols as f32;
+        let field_h = PUYO_SIZE * self.rows as f32;
         let center_x = self.field_x + field_w / 2.0;
         let center_y = self.field_y + field_h / 2.0 + y_offset;
 
@@ -150,8 +154,8 @@ impl Renderer {
 
     /// ゲームオーバー画面の描画
     pub fn draw_game_over(&self) {
-        let field_w = PUYO_SIZE * COLS as f32;
-        let field_h = PUYO_SIZE * ROWS as f32;
+        let field_w = PUYO_SIZE * self.cols as f32;
+        let field_h = PUYO_SIZE * self.rows as f32;
         // 半透明の暗幕
         draw_rectangle(
             self.field_x,
@@ -165,8 +169,8 @@ impl Renderer {
         let scale = 0.45 + 0.1 * t; // 0.45〜0.55
         let tex_w = self.game_over_text.width() * scale;
         let tex_h = self.game_over_text.height() * scale;
-        let field_w2 = PUYO_SIZE * COLS as f32;
-        let field_h2 = PUYO_SIZE * ROWS as f32;
+        let field_w2 = PUYO_SIZE * self.cols as f32;
+        let field_h2 = PUYO_SIZE * self.rows as f32;
         let cx = self.field_x + field_w2 / 2.0 - tex_w / 2.0;
         let cy = self.field_y + field_h2 / 2.0 - tex_h / 2.0;
         draw_texture_ex(
@@ -214,9 +218,9 @@ impl Renderer {
     pub fn draw_score(&self, score: u32) {
         let text = format!("{score:08}");
         let font_size = 36.0;
-        let field_w = PUYO_SIZE * COLS as f32;
+        let field_w = PUYO_SIZE * self.cols as f32;
         let dims = measure_text(&text, Some(&self.font), font_size as u16, 1.0);
-        let field_h = PUYO_SIZE * ROWS as f32;
+        let field_h = PUYO_SIZE * self.rows as f32;
         let padding = FIELD_PADDING;
         let field_bottom = self.field_y + field_h;
         let bg_bottom = field_bottom + padding * 3.0;

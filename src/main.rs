@@ -1,7 +1,7 @@
-mod constants;
 mod controller;
 mod game;
 mod render;
+mod types;
 
 use controller::Controller;
 use macroquad::prelude::*;

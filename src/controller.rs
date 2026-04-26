@@ -1,4 +1,4 @@
-use crate::game::{GameField, PlayContext, Screen};
+use crate::game::{GameField, PlayContext, Screen, COLS, ROWS};
 use crate::render::Renderer;
 use macroquad::prelude::*;
 
@@ -10,7 +10,7 @@ pub struct Controller {
 
 impl Controller {
     pub async fn new(window_width: f32, window_height: f32) -> Self {
-        let renderer = Renderer::new(window_width, window_height).await;
+        let renderer = Renderer::new(window_width, window_height, COLS, ROWS).await;
         Controller {
             screen: Screen::new(),
             renderer,

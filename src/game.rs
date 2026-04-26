@@ -1,5 +1,9 @@
-use crate::constants::*;
+use crate::types::Puyo;
 use macroquad::prelude::*;
+
+// フィールドサイズ
+pub const COLS: usize = 6; // 見えているフィールドの列数
+pub const ROWS: usize = 12; // 見えているフィールドの行数
 
 // 落下・移動の時間間隔（秒）
 const DROP_INTERVAL: f64 = 0.3;
