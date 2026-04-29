@@ -4,6 +4,37 @@ use std::collections::HashMap;
 
 const PUYO_SIZE: f32 = 60.0; // ぷよ1個あたりの描画サイズ（ピクセル）
 const FIELD_PADDING: f32 = 20.0; // フィールド外枠の余白（ピクセル）
+const NEXT_ANIM_DURATION: f64 = 0.15; // ネクスト遷移アニメーションの長さ（秒）
+
+pub struct NextPuyo {
+    pub axis: Puyo,
+    pub child: Puyo,
+    pub generation: u32, // 世代（スポーンごとにインクリメント）
+}
+
+impl NextPuyo {
+    pub fn new(axis: Puyo, child: Puyo, generation: u32) -> Self {
+        NextPuyo { axis, child, generation }
+    }
+}
+
+struct NextAnim {
+    start_time: f64,                  // アニメーション開始時刻
+    prev_generation: u32,             // 前回の世代（変化検出用）
+    current: Option<(Puyo, Puyo)>,    // 現在のネクスト
+    exiting: Option<(Puyo, Puyo)>,    // 上に出ていく旧ネクスト
+}
+
+impl NextAnim {
+    fn new() -> Self {
+        NextAnim {
+            start_time: 0.0,
+            prev_generation: 0,
+            current: None,
+            exiting: None,
+        }
+    }
+}
 
 pub struct Renderer {
     textures: HashMap<Puyo, Texture2D>,
@@ -12,12 +43,14 @@ pub struct Renderer {
     field: Texture2D,
     font: Font,
     game_over_text: Texture2D,
+    next_area: Texture2D,
     window_width: f32,
     window_height: f32,
     cols: usize,
     rows: usize,
     field_x: f32,
     field_y: f32,
+    next_anim: NextAnim,
 }
 
 impl Renderer {
@@ -54,6 +87,11 @@ impl Renderer {
         let game_over_text = load_texture("assets/images/game_over.png").await.unwrap();
         game_over_text.set_filter(FilterMode::Linear);
 
+        let next_area = load_texture("assets/images/background/next_area.png")
+            .await
+            .unwrap();
+        next_area.set_filter(FilterMode::Nearest);
+
         let field_x = (window_width - PUYO_SIZE * cols as f32) / 2.0;
         let field_y = (window_height - PUYO_SIZE * rows as f32) / 2.0;
 
@@ -64,12 +102,14 @@ impl Renderer {
             field,
             font,
             game_over_text,
+            next_area,
             window_width,
             window_height,
             cols,
             rows,
             field_x,
             field_y,
+            next_anim: NextAnim::new(),
         }
     }
 
@@ -203,6 +243,122 @@ impl Renderer {
             WHITE,
             DrawTextureParams {
                 dest_size: Some(Vec2::new(w, h)),
+                ..Default::default()
+            },
+        );
+    }
+
+    /// ネクストエリアの背景を描画（常時表示）
+    pub fn draw_next_area(&self) {
+        let field_w = PUYO_SIZE * self.cols as f32;
+        let gap = 5.0;
+        let area_w = PUYO_SIZE * 2.5;
+        let area_h = PUYO_SIZE * 5.5;
+        let area_x = self.field_x + field_w + FIELD_PADDING + gap;
+        let area_y = self.field_y - FIELD_PADDING;
+
+        draw_texture_ex(
+            &self.next_area,
+            area_x,
+            area_y,
+            WHITE,
+            DrawTextureParams {
+                dest_size: Some(Vec2::new(area_w, area_h)),
+                ..Default::default()
+            },
+        );
+    }
+
+    /// ネクスト・ネクネクのぷよをアニメーション付きで描画
+    pub fn draw_next_puyos(&mut self, next: &NextPuyo, next_next: &NextPuyo) {
+        let now = get_time();
+
+        // 世代が変わったらアニメーション開始
+        if self.next_anim.prev_generation != next.generation {
+            self.next_anim.exiting = self.next_anim.current;
+            self.next_anim.start_time = now;
+            self.next_anim.prev_generation = next.generation;
+        }
+        self.next_anim.current = Some((next.axis, next.child));
+
+        let field_w = PUYO_SIZE * self.cols as f32;
+        let gap = 5.0;
+        let area_w = PUYO_SIZE * 2.5;
+        let area_h = PUYO_SIZE * 5.5;
+        let area_x = self.field_x + field_w + FIELD_PADDING + gap;
+        let area_y = self.field_y - FIELD_PADDING;
+
+        // アニメーション進行度（0.0→1.0、ease-out）
+        let raw_t = ((now - self.next_anim.start_time) / NEXT_ANIM_DURATION).clamp(0.0, 1.0) as f32;
+        let t = 1.0 - (1.0 - raw_t) * (1.0 - raw_t); // ease-out quadratic
+
+        // クリッピング範囲（白枠のさらに内側）
+        let border = 18.0;
+        let clip_top = area_y + border;
+        let clip_bottom = area_y + area_h - border;
+
+        // ネクスト安定位置（左寄り）
+        let next_rest_x = area_x + PUYO_SIZE * 0.3;
+        let next_rest_y = area_y + PUYO_SIZE * 0.5;
+        // ネクネク安定位置（右寄り）
+        let nn_scale = 0.75;
+        let nn_size = PUYO_SIZE * nn_scale;
+        let nn_rest_x = area_x + area_w - nn_size - PUYO_SIZE * 0.3;
+        let nn_rest_y = area_y + PUYO_SIZE * 3.2;
+        // 入口（右下）・出口（左上）
+        let entry_x = nn_rest_x;
+        let entry_y = clip_bottom + nn_size * 2.0; // ぷよ2個分下から（クリッピングで隠れる）
+        let exit_y = area_y - PUYO_SIZE * 2.5;
+
+        // 退出中の旧ネクスト: ネクスト位置 → 左上に出ていく
+        if let Some(exiting) = self.next_anim.exiting {
+            let ex_y = next_rest_y + (exit_y - next_rest_y) * t;
+            if ex_y + PUYO_SIZE * 2.0 > clip_top {
+                self.draw_puyo_clipped(exiting.1, next_rest_x, ex_y, 1.0, clip_top, clip_bottom);
+                self.draw_puyo_clipped(exiting.0, next_rest_x, ex_y + PUYO_SIZE, 1.0, clip_top, clip_bottom);
+            }
+        }
+
+        // ネクスト: 右下のネクネク位置 → 左上のネクスト位置にスライド
+        let next_x = nn_rest_x + (next_rest_x - nn_rest_x) * t;
+        let next_y = nn_rest_y + (next_rest_y - nn_rest_y) * t;
+        // スライド中はネクネクサイズ → ネクストサイズに拡大
+        let next_scale = nn_scale + (1.0 - nn_scale) * t;
+        let next_size = PUYO_SIZE * next_scale;
+        self.draw_puyo_clipped(next.child, next_x, next_y, next_scale, clip_top, clip_bottom);
+        self.draw_puyo_clipped(next.axis, next_x, next_y + next_size, next_scale, clip_top, clip_bottom);
+
+        // ネクネク: 右下から → ネクネク位置にスライド
+        let nn_x = entry_x + (nn_rest_x - entry_x) * t;
+        let nn_y = entry_y + (nn_rest_y - entry_y) * t;
+        self.draw_puyo_clipped(next_next.child, nn_x, nn_y, nn_scale, clip_top, clip_bottom);
+        self.draw_puyo_clipped(next_next.axis, nn_x, nn_y + nn_size, nn_scale, clip_top, clip_bottom);
+    }
+
+    /// エリア範囲内のみ描画するぷよ（はみ出し部分は非表示）
+    fn draw_puyo_clipped(&self, puyo: Puyo, x: f32, y: f32, scale: f32, clip_top: f32, clip_bottom: f32) {
+        let size = PUYO_SIZE * scale;
+        if y + size <= clip_top || y >= clip_bottom {
+            return; // 完全にエリア外
+        }
+        // エリア内に収まる部分だけ描画
+        let visible_top = (clip_top - y).max(0.0);
+        let visible_bottom = (clip_bottom - y).min(size);
+        let src_top = visible_top / size;
+        let src_bottom = visible_bottom / size;
+        draw_texture_ex(
+            &self.textures[&puyo],
+            x,
+            y + visible_top,
+            WHITE,
+            DrawTextureParams {
+                dest_size: Some(Vec2::new(size, visible_bottom - visible_top)),
+                source: Some(Rect::new(
+                    0.0,
+                    src_top * self.textures[&puyo].height(),
+                    self.textures[&puyo].width(),
+                    (src_bottom - src_top) * self.textures[&puyo].height(),
+                )),
                 ..Default::default()
             },
         );

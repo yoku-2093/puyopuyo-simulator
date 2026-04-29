@@ -1,5 +1,5 @@
-use crate::game::{GameField, PlayContext, Screen, COLS, ROWS};
-use crate::render::Renderer;
+use crate::game::{COLS, GameField, PlayContext, ROWS, Screen};
+use crate::render::{NextPuyo, Renderer};
 use macroquad::prelude::*;
 
 pub struct Controller {
@@ -21,7 +21,7 @@ impl Controller {
     pub fn step(&mut self) {
         self.renderer.draw_background();
         self.renderer.draw_field();
-
+        self.renderer.draw_next_area();
         match &self.screen {
             Screen::Title => self.update_title(),
             Screen::Playing(_) => self.update_playing(),
@@ -67,7 +67,7 @@ impl Controller {
         self.draw_playing();
     }
 
-    fn draw_playing(&self) {
+    fn draw_playing(&mut self) {
         let Screen::Playing(field) = &self.screen else {
             return;
         };
@@ -87,6 +87,14 @@ impl Controller {
             let color = Color::new(p.color.r, p.color.g, p.color.b, p.alpha());
             self.renderer.draw_particle(p.col, p.row, p.size, color);
         }
+
+        let generation = field.spawn_count();
+        let next = field.next();
+        let nn = field.next_next();
+        self.renderer.draw_next_puyos(
+            &NextPuyo::new(next.axis(), next.child(), generation),
+            &NextPuyo::new(nn.axis(), nn.child(), generation),
+        );
 
         self.renderer.draw_score(field.score());
     }

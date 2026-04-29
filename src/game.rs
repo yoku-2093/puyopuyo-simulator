@@ -6,7 +6,7 @@ pub const COLS: usize = 6; // 見えているフィールドの列数
 pub const ROWS: usize = 12; // 見えているフィールドの行数
 
 // 落下・移動の時間間隔（秒）
-const DROP_INTERVAL: f64 = 0.3;
+const DROP_INTERVAL: f64 = 0.5;
 const MOVE_INTERVAL: f64 = 0.05;
 const MOVE_REPEAT_DELAY: f64 = 0.2; // 初回入力からリピート開始までの猶予
 const LOCK_DELAY: f64 = 0.40; // 接地から固定までの猶予
@@ -336,6 +336,7 @@ pub struct GameField {
     blinking: Vec<BlinkingPuyo>,   // 点滅中のぷよ
     sparkling: Vec<SparklingPuyo>, // 弾けるアニメ中
     particles: Vec<Particle>,      // パーティクル
+    spawn_count: u32,              // スポーン回数
 }
 
 pub struct PlayContext {
@@ -386,6 +387,7 @@ impl GameField {
             blinking: Vec::new(),
             sparkling: Vec::new(),
             particles: Vec::new(),
+            spawn_count: 0,
         }
     }
 
@@ -395,6 +397,18 @@ impl GameField {
 
     pub fn score(&self) -> u32 {
         self.score
+    }
+
+    pub fn spawn_count(&self) -> u32 {
+        self.spawn_count
+    }
+
+    pub fn next(&self) -> &PuyoPuyo {
+        &self.next
+    }
+
+    pub fn next_next(&self) -> &PuyoPuyo {
+        &self.next_next
     }
 }
 
@@ -535,7 +549,11 @@ impl GameField {
             ctx.settling_start = now;
         }
 
-        let delay = if is_key_down(KeyCode::Down) { LOCK_DELAY_FAST } else { LOCK_DELAY };
+        let delay = if is_key_down(KeyCode::Down) {
+            LOCK_DELAY_FAST
+        } else {
+            LOCK_DELAY
+        };
         if !self.is_grounded() {
             ctx.play_state = PlayState::Active;
         } else if now - ctx.settling_start > delay
@@ -848,6 +866,7 @@ impl GameField {
 
     // ネクストぷよに切り替え
     fn spawn_next(&mut self) {
+        self.spawn_count += 1;
         self.puyopuyo = self.next;
         self.next = self.next_next;
         self.next_next = PuyoPuyo::new();
