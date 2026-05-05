@@ -21,7 +21,6 @@ impl Controller {
     pub fn step(&mut self) {
         self.renderer.draw_background();
         self.renderer.draw_field();
-        self.renderer.draw_next_area();
         match &self.screen {
             Screen::Title => self.update_title(),
             Screen::Playing(_) => self.update_playing(),
@@ -95,7 +94,7 @@ impl Controller {
             &NextPuyo::new(next.axis(), next.child(), generation),
             &NextPuyo::new(nn.axis(), nn.child(), generation),
         );
-
+        self.renderer.draw_next_area();
         self.renderer.draw_score(field.score());
     }
 }
