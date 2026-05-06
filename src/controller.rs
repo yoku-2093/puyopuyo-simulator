@@ -91,8 +91,9 @@ impl Controller {
         let next = field.next();
         let nn = field.next_next();
         self.renderer.draw_next_puyos(
-            &NextPuyo::new(next.axis(), next.child(), generation),
-            &NextPuyo::new(nn.axis(), nn.child(), generation),
+            &NextPuyo::new(next.axis(), next.child()),
+            &NextPuyo::new(nn.axis(), nn.child()),
+            generation,
         );
         self.renderer.draw_next_area();
         self.renderer.draw_score(field.score());

@@ -9,22 +9,17 @@ const NEXT_ANIM_DURATION: f64 = 0.15; // ネクスト遷移アニメーション
 pub struct NextPuyo {
     pub axis: Puyo,
     pub child: Puyo,
-    pub generation: u32, // 世代（スポーンごとにインクリメント）
 }
 
 impl NextPuyo {
-    pub fn new(axis: Puyo, child: Puyo, generation: u32) -> Self {
-        NextPuyo {
-            axis,
-            child,
-            generation,
-        }
+    pub fn new(axis: Puyo, child: Puyo) -> Self {
+        NextPuyo { axis, child }
     }
 }
 
 struct NextAnim {
     start_time: f64,               // アニメーション開始時刻
-    prev_generation: u32,          // 前回の世代（変化検出用）
+    generation: u32,               // 世代（変化検出用）
     current: Option<(Puyo, Puyo)>, // 現在のネクスト
     exiting: Option<(Puyo, Puyo)>, // 上に出ていく旧ネクスト
 }
@@ -33,7 +28,7 @@ impl NextAnim {
     fn new() -> Self {
         NextAnim {
             start_time: 0.0,
-            prev_generation: 0,
+            generation: 0,
             current: None,
             exiting: None,
         }
@@ -279,101 +274,100 @@ impl Renderer {
     }
 
     /// ネクスト・ネクネクのぷよをアニメーション付きで描画
-    pub fn draw_next_puyos(&mut self, next: &NextPuyo, next_next: &NextPuyo) {
+    pub fn draw_next_puyos(&mut self, next: &NextPuyo, next_next: &NextPuyo, generation: u32) {
         let now = get_time();
 
         // 世代が変わったらアニメーション開始
-        if self.next_anim.prev_generation != next.generation {
+        if self.next_anim.generation != generation {
             self.next_anim.exiting = self.next_anim.current;
             self.next_anim.start_time = now;
-            self.next_anim.prev_generation = next.generation;
+            self.next_anim.generation = generation;
         }
         self.next_anim.current = Some((next.axis, next.child));
 
         let (area_x, area_y, area_w, area_h) = self.next_area_rect();
+        let textures = &self.textures;
 
-        // アニメーション進行度（0.0→1.0、ease-out）
+        // ease-out 進行度
         let raw_t = ((now - self.next_anim.start_time) / NEXT_ANIM_DURATION).clamp(0.0, 1.0) as f32;
-        let t = 1.0 - (1.0 - raw_t) * (1.0 - raw_t); // ease-out quadratic
+        let t = 1.0 - (1.0 - raw_t) * (1.0 - raw_t);
+        let lerp = |a: f32, b: f32| a + (b - a) * t;
 
-        // ネクスト安定位置（左寄り）
-        let next_rest_x = area_x + PUYO_SIZE * 0.3;
-        let next_rest_y = area_y + PUYO_SIZE;
-        // ネクネク安定位置（右寄り）
+        // (位置, スケール) の定義
         let nn_scale = 0.75;
         let nn_size = PUYO_SIZE * nn_scale;
-        let nn_rest_x = area_x + area_w - nn_size - PUYO_SIZE * 0.3;
-        let nn_rest_y = area_y + PUYO_SIZE * 3.2;
-        // 入口（右下）・出口（左上）
-        let entry_x = nn_rest_x;
-        let entry_y = area_y + area_h + nn_size * 2.0;
-        let exit_y = area_y - PUYO_SIZE * 2.5;
+        let next_rest = (area_x + PUYO_SIZE * 0.3, area_y + PUYO_SIZE);
+        let nn_rest = (
+            area_x + area_w - nn_size - PUYO_SIZE * 0.3,
+            area_y + PUYO_SIZE * 3.2,
+        );
+        let entry = (nn_rest.0, area_y + area_h + nn_size * 2.0);
+        let exit = (next_rest.0, area_y - PUYO_SIZE * 2.5);
 
-        // 退出中の旧ネクスト: ネクスト位置 → 左上に出ていく
+        // ネクストエリア矩形でクリップしてぷよを描画（はみ出しは source rect で切り取る）
+        let draw_clipped = |puyo: Puyo, x: f32, y: f32, scale: f32| {
+            let size = PUYO_SIZE * scale;
+            let clip_right = area_x + area_w;
+            let clip_bottom = area_y + area_h;
+            if x + size <= area_x || x >= clip_right || y + size <= area_y || y >= clip_bottom {
+                return;
+            }
+            let (vl, vr, vt, vb) = (
+                (area_x - x).max(0.0),
+                (clip_right - x).min(size),
+                (area_y - y).max(0.0),
+                (clip_bottom - y).min(size),
+            );
+            let (tex, tex_w, tex_h) = (
+                &textures[&puyo],
+                textures[&puyo].width(),
+                textures[&puyo].height(),
+            );
+            draw_texture_ex(
+                tex,
+                x + vl,
+                y + vt,
+                WHITE,
+                DrawTextureParams {
+                    dest_size: Some(Vec2::new(vr - vl, vb - vt)),
+                    source: Some(Rect::new(
+                        vl / size * tex_w,
+                        vt / size * tex_h,
+                        (vr - vl) / size * tex_w,
+                        (vb - vt) / size * tex_h,
+                    )),
+                    ..Default::default()
+                },
+            );
+        };
+
+        // (axis, child) のぷよ組を縦に並べて描画
+        let draw_pair = |pair: (Puyo, Puyo), (x, y): (f32, f32), scale: f32| {
+            let size = PUYO_SIZE * scale;
+            draw_clipped(pair.1, x, y, scale);
+            draw_clipped(pair.0, x, y + size, scale);
+        };
+
+        // ① 退出中の旧ネクスト: 安定位置 → 上へ
         if let Some(exiting) = self.next_anim.exiting {
-            let ex_y = next_rest_y + (exit_y - next_rest_y) * t;
-            self.draw_next_puyo(exiting.1, next_rest_x, ex_y, 1.0);
-            self.draw_next_puyo(exiting.0, next_rest_x, ex_y + PUYO_SIZE, 1.0);
+            draw_pair(
+                exiting,
+                (lerp(next_rest.0, exit.0), lerp(next_rest.1, exit.1)),
+                1.0,
+            );
         }
-
-        // ネクスト: 右下のネクネク位置 → 左上のネクスト位置にスライド
-        let next_x = nn_rest_x + (next_rest_x - nn_rest_x) * t;
-        let next_y = nn_rest_y + (next_rest_y - nn_rest_y) * t;
+        // ② ネクスト: ネクネク位置 → ネクスト位置（拡大しながら）
         let next_scale = nn_scale + (1.0 - nn_scale) * t;
-        let next_size = PUYO_SIZE * next_scale;
-        self.draw_next_puyo(next.child, next_x, next_y, next_scale);
-        self.draw_next_puyo(next.axis, next_x, next_y + next_size, next_scale);
-
-        // ネクネク: 右下から → ネクネク位置にスライド
-        let nn_x = entry_x + (nn_rest_x - entry_x) * t;
-        let nn_y = entry_y + (nn_rest_y - entry_y) * t;
-        self.draw_next_puyo(next_next.child, nn_x, nn_y, nn_scale);
-        self.draw_next_puyo(next_next.axis, nn_x, nn_y + nn_size, nn_scale);
-    }
-
-    /// ネクストエリア矩形でクリップしてぷよを描画
-    /// 矩形外に出る部分はテクスチャの source rect で切り取る
-    fn draw_next_puyo(&self, puyo: Puyo, x: f32, y: f32, scale: f32) {
-        let size = PUYO_SIZE * scale;
-        let (area_x, area_y, area_w, area_h) = self.next_area_rect();
-        let clip_left = area_x;
-        let clip_top = area_y;
-        let clip_right = area_x + area_w;
-        let clip_bottom = area_y + area_h;
-
-        // 完全に矩形外なら描画しない
-        if x + size <= clip_left || x >= clip_right || y + size <= clip_top || y >= clip_bottom {
-            return;
-        }
-
-        // 矩形内に収まる範囲を計算
-        let visible_left = (clip_left - x).max(0.0);
-        let visible_right = (clip_right - x).min(size);
-        let visible_top = (clip_top - y).max(0.0);
-        let visible_bottom = (clip_bottom - y).min(size);
-
-        // テクスチャの対応部分（source rect）
-        let tex = &self.textures[&puyo];
-        let tex_w = tex.width();
-        let tex_h = tex.height();
-        let src_x = visible_left / size * tex_w;
-        let src_y = visible_top / size * tex_h;
-        let src_w = (visible_right - visible_left) / size * tex_w;
-        let src_h = (visible_bottom - visible_top) / size * tex_h;
-
-        draw_texture_ex(
-            tex,
-            x + visible_left,
-            y + visible_top,
-            WHITE,
-            DrawTextureParams {
-                dest_size: Some(Vec2::new(
-                    visible_right - visible_left,
-                    visible_bottom - visible_top,
-                )),
-                source: Some(Rect::new(src_x, src_y, src_w, src_h)),
-                ..Default::default()
-            },
+        draw_pair(
+            (next.axis, next.child),
+            (lerp(nn_rest.0, next_rest.0), lerp(nn_rest.1, next_rest.1)),
+            next_scale,
+        );
+        // ③ ネクネク: 入口 → ネクネク位置
+        draw_pair(
+            (next_next.axis, next_next.child),
+            (lerp(entry.0, nn_rest.0), lerp(entry.1, nn_rest.1)),
+            nn_scale,
         );
     }
 
