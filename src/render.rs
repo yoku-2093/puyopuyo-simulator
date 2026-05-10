@@ -1,4 +1,5 @@
 use crate::types::Puyo;
+use egui_macroquad::egui;
 use macroquad::prelude::*;
 use std::collections::HashMap;
 
@@ -188,6 +189,12 @@ impl Renderer {
             24.0,
             Color::new(1.0, 1.0, 0.0, alpha),
             0.0,
+        );
+        self.draw_centered_text(
+            "Press O for Settings",
+            16.0,
+            Color::new(1.0, 1.0, 1.0, 0.7),
+            40.0,
         );
     }
 
@@ -427,5 +434,56 @@ impl Renderer {
                 ..Default::default()
             },
         );
+    }
+
+    /// 設定画面を描画。閉じるボタンが押されたら true を返す
+    pub fn draw_settings(
+        &self,
+        puyo_colors: &mut usize,
+        bgm_volume: &mut f32,
+        showing_credits: &mut bool,
+    ) -> bool {
+        let mut close = false;
+        let credits = *showing_credits;
+
+        egui_macroquad::ui(|ctx| {
+            egui::Window::new(if credits { "Credits" } else { "Settings" })
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    if credits {
+                        ui.label("BGM (Niconico Commons):");
+                        ui.hyperlink("https://commons.nicovideo.jp/works/agreement/nc2971");
+                        ui.hyperlink("https://commons.nicovideo.jp/works/agreement/nc268086");
+                        ui.add_space(10.0);
+                        if ui.button("Back").clicked() {
+                            *showing_credits = false;
+                        }
+                    } else {
+                        ui.horizontal(|ui| {
+                            ui.label("Puyo colors:");
+                            ui.add(egui::Slider::new(puyo_colors, 3..=5));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("BGM volume:");
+                            ui.add(egui::Slider::new(bgm_volume, 0.0..=1.0));
+                        });
+                        ui.add_space(10.0);
+                        if ui.button("Credits").clicked() {
+                            *showing_credits = true;
+                        }
+                        if ui.button("Close (ESC)").clicked() {
+                            close = true;
+                        }
+                    }
+                });
+        });
+        close
+    }
+
+    /// egui の描画をフレーム終了時に出力する（フレームに1回だけ呼ぶ）
+    pub fn flush_egui(&self) {
+        egui_macroquad::draw();
     }
 }

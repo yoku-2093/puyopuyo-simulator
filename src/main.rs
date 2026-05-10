@@ -1,6 +1,7 @@
 mod controller;
 mod game;
 mod render;
+mod settings;
 mod types;
 
 use controller::Controller;

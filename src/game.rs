@@ -28,7 +28,6 @@ const PARTICLE_SPEED_MAX: f32 = 8.0; // パーティクルの最高速度
 const PARTICLE_GRAVITY: f32 = 15.0; // パーティクルの重力（グリッド/秒²）
 const PARTICLE_SIZE_MIN: f32 = 0.08; // パーティクルの最小サイズ（グリッド単位）
 const PARTICLE_SIZE_MAX: f32 = 0.18; // パーティクルの最大サイズ
-const PUYO_COLORS: usize = 4; // 出現するぷよの色数（3〜5）
 
 const GHOST_ROWS: usize = 2; // 見えない幽霊行の数
 const INITIAL_POSITION: Position = Position::new(2, GHOST_ROWS); // ぷよの初期出現位置
@@ -50,10 +49,35 @@ impl PuyoPuyo {
         self.child
     }
 
-    const ALL_COLORS: [Puyo; 5] = [Puyo::Red, Puyo::Blue, Puyo::Green, Puyo::Yellow, Puyo::Purple];
+    pub fn orientation(&self) -> Orientation {
+        self.orientation
+    }
 
-    pub fn new() -> Self {
-        let puyos = &Self::ALL_COLORS[..PUYO_COLORS];
+    pub fn set_orientation(&mut self, orientation: Orientation) {
+        self.orientation = orientation;
+    }
+}
+
+/// PuyoPuyo を生成するファクトリ
+pub struct PuyoPuyoFactory {
+    num_colors: usize,
+}
+
+impl PuyoPuyoFactory {
+    const ALL_COLORS: [Puyo; 5] = [
+        Puyo::Red,
+        Puyo::Blue,
+        Puyo::Green,
+        Puyo::Yellow,
+        Puyo::Purple,
+    ];
+
+    pub fn new(num_colors: usize) -> Self {
+        PuyoPuyoFactory { num_colors }
+    }
+
+    pub fn create(&self) -> PuyoPuyo {
+        let puyos = &Self::ALL_COLORS[..self.num_colors];
         let axis = puyos[rand::gen_range(0, puyos.len())];
         let child = puyos[rand::gen_range(0, puyos.len())];
         PuyoPuyo {
@@ -61,14 +85,6 @@ impl PuyoPuyo {
             child,
             orientation: Orientation::Up,
         }
-    }
-
-    pub fn orientation(&self) -> Orientation {
-        self.orientation
-    }
-
-    pub fn set_orientation(&mut self, orientation: Orientation) {
-        self.orientation = orientation;
     }
 }
 
@@ -173,18 +189,6 @@ impl VisibleRow {
 
     pub fn index(self) -> usize {
         self.0
-    }
-}
-
-pub enum Screen {
-    Title,              // タイトル画面
-    Playing(GameField), // プレイ中
-    GameOver,           // ゲームオーバー
-}
-
-impl Screen {
-    pub fn new() -> Self {
-        Screen::Title
     }
 }
 
@@ -317,6 +321,7 @@ fn puyo_color(puyo: Puyo) -> Color {
 // ゲームの状態を表す構造体
 // positionのrowは幽霊行を含む行番号で管理する（例: position.row == 0 は最上幽霊行）
 pub struct GameField {
+    factory: PuyoPuyoFactory, // ぷよ生成用ファクトリ
     puyopuyo: PuyoPuyo, // 落下中のぷよ
     position: Position, // 軸ぷよの位置
     display_col: f64,   // 軸の表示位置（補間用）
@@ -366,15 +371,16 @@ impl PlayContext {
 // --- GameField: 生成・公開API ---
 
 impl GameField {
-    pub fn new() -> Self {
+    pub fn new(num_colors: usize) -> Self {
+        let factory = PuyoPuyoFactory::new(num_colors);
         GameField {
-            puyopuyo: PuyoPuyo::new(),
+            puyopuyo: factory.create(),
             position: INITIAL_POSITION,
             display_col: INITIAL_POSITION.col as f64,
             display_row: INITIAL_POSITION.row as f64,
             display_angle: Orientation::Up.to_angle(),
-            next: PuyoPuyo::new(),
-            next_next: PuyoPuyo::new(),
+            next: factory.create(),
+            next_next: factory.create(),
             field: [[None; COLS]; TOTAL_ROWS],
             is_game_over: false,
             score: 0,
@@ -385,6 +391,7 @@ impl GameField {
             sparkling: Vec::new(),
             particles: Vec::new(),
             spawn_count: 0,
+            factory,
         }
     }
 
@@ -866,7 +873,7 @@ impl GameField {
         self.spawn_count += 1;
         self.puyopuyo = self.next;
         self.next = self.next_next;
-        self.next_next = PuyoPuyo::new();
+        self.next_next = self.factory.create();
         self.position = INITIAL_POSITION;
         self.display_col = INITIAL_POSITION.col as f64;
         self.display_row = INITIAL_POSITION.row as f64;

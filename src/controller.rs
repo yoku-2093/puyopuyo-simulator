@@ -1,11 +1,26 @@
-use crate::game::{COLS, GameField, PlayContext, ROWS, Screen};
+use crate::game::{COLS, GameField, PlayContext, ROWS};
 use crate::render::{NextPuyo, Renderer};
+use crate::settings::Settings;
 use macroquad::prelude::*;
+
+pub enum Screen {
+    Title,              // タイトル画面
+    Playing(GameField), // プレイ中
+    GameOver,           // ゲームオーバー
+    Settings,           // 設定画面
+}
+
+impl Screen {
+    pub fn new() -> Self {
+        Screen::Title
+    }
+}
 
 pub struct Controller {
     screen: Screen,
     renderer: Renderer,
     ctx: PlayContext,
+    settings: Settings,
 }
 
 impl Controller {
@@ -15,6 +30,7 @@ impl Controller {
             screen: Screen::new(),
             renderer,
             ctx: PlayContext::new(),
+            settings: Settings::new(),
         }
     }
 
@@ -25,14 +41,31 @@ impl Controller {
             Screen::Title => self.update_title(),
             Screen::Playing(_) => self.update_playing(),
             Screen::GameOver => self.update_game_over(),
+            Screen::Settings => self.update_settings(),
         }
+        // egui の描画はフレームに1回だけ
+        self.renderer.flush_egui();
     }
 
     fn update_title(&mut self) {
         self.renderer.draw_press_start();
         if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::Space) {
-            self.screen = Screen::Playing(GameField::new());
+            self.screen = Screen::Playing(GameField::new(self.settings.puyo_colors));
             self.ctx = PlayContext::new();
+        } else if is_key_pressed(KeyCode::O) {
+            self.settings.showing_credits = false;
+            self.screen = Screen::Settings;
+        }
+    }
+
+    fn update_settings(&mut self) {
+        let close = self.renderer.draw_settings(
+            &mut self.settings.puyo_colors,
+            &mut self.settings.bgm_volume,
+            &mut self.settings.showing_credits,
+        );
+        if close || is_key_pressed(KeyCode::Escape) {
+            self.screen = Screen::Title;
         }
     }
 
