@@ -56,14 +56,14 @@ impl Controller {
         if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::Space) {
             self.screen = Screen::Playing(GameField::new(self.settings.puyo_colors));
             self.ctx = PlayContext::new();
-        } else if is_key_pressed(KeyCode::O) {
+        } else if is_key_pressed(KeyCode::S) {
             self.settings.showing_credits = false;
             self.screen = Screen::Settings;
         }
     }
 
     fn update_settings(&mut self) {
-        let close = self.renderer.draw_settings(
+        let result = self.renderer.draw_settings(
             &mut self.settings.puyo_colors,
             &mut self.settings.bgm_volume,
             &mut self.settings.se_volume,
@@ -71,7 +71,11 @@ impl Controller {
         );
         // BGM 音量を反映
         self.audio.set_bgm_volume(self.settings.bgm_volume);
-        if close || is_key_pressed(KeyCode::Escape) {
+        // SE 調整完了時にテスト音を鳴らす
+        if result.test_se {
+            self.audio.play_puyo(self.settings.se_volume);
+        }
+        if result.close || is_key_pressed(KeyCode::Escape) {
             self.screen = Screen::Title;
         }
     }

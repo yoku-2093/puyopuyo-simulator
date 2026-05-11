@@ -65,7 +65,7 @@ pub enum GameEvent {
 
 /// PuyoPuyo を生成するファクトリ
 pub struct PuyoPuyoFactory {
-    num_colors: usize,
+    colors: Vec<Puyo>,
 }
 
 impl PuyoPuyoFactory {
@@ -78,13 +78,19 @@ impl PuyoPuyoFactory {
     ];
 
     pub fn new(num_colors: usize) -> Self {
-        PuyoPuyoFactory { num_colors }
+        // ALL_COLORS から num_colors 個をランダムに選ぶ（Fisher-Yates シャッフル）
+        let mut colors = Self::ALL_COLORS.to_vec();
+        for i in (1..colors.len()).rev() {
+            let j = rand::gen_range(0, i + 1);
+            colors.swap(i, j);
+        }
+        colors.truncate(num_colors);
+        PuyoPuyoFactory { colors }
     }
 
     pub fn create(&self) -> PuyoPuyo {
-        let puyos = &Self::ALL_COLORS[..self.num_colors];
-        let axis = puyos[rand::gen_range(0, puyos.len())];
-        let child = puyos[rand::gen_range(0, puyos.len())];
+        let axis = self.colors[rand::gen_range(0, self.colors.len())];
+        let child = self.colors[rand::gen_range(0, self.colors.len())];
         PuyoPuyo {
             axis,
             child,

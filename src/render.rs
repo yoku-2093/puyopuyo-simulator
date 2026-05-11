@@ -7,6 +7,8 @@ const PUYO_SIZE: f32 = 60.0; // ぷよ1個あたりの描画サイズ（ピク�
 const FIELD_PADDING: f32 = 20.0; // フィールド外枠の余白（ピクセル）
 const NEXT_ANIM_DURATION: f64 = 0.15; // ネクスト遷移アニメーションの長さ（秒）
 
+const JAPANESE_FONT: &[u8] = include_bytes!("../assets/fonts/Hiragino_Sans_W6.ttf");
+
 pub struct NextPuyo {
     pub axis: Puyo,
     pub child: Puyo,
@@ -80,31 +82,9 @@ impl Renderer {
             .await
             .unwrap();
 
-        // フォントを bytes として読み込み、macroquad と egui で共有
-        let font_bytes = load_file("assets/fonts/Hiragino_Sans_W6.ttf")
-            .await
-            .unwrap();
-        let font = load_ttf_font_from_bytes(&font_bytes).unwrap();
-
-        // egui に同じフォントを日本語対応として登録
-        egui_macroquad::cfg(|ctx| {
-            let mut fonts = egui::FontDefinitions::default();
-            fonts.font_data.insert(
-                "japanese".to_owned(),
-                std::sync::Arc::new(egui::FontData::from_owned(font_bytes)),
-            );
-            fonts
-                .families
-                .entry(egui::FontFamily::Proportional)
-                .or_default()
-                .insert(0, "japanese".to_owned());
-            fonts
-                .families
-                .entry(egui::FontFamily::Monospace)
-                .or_default()
-                .insert(0, "japanese".to_owned());
-            ctx.set_fonts(fonts);
-        });
+        // 日本語フォント。include_bytes! でバイナリに埋め込み、macroquad と egui で共有
+        let font = load_ttf_font_from_bytes(JAPANESE_FONT).unwrap();
+        egui_macroquad::cfg(|ctx| Self::install_egui_japanese_font(ctx));
 
         let game_over_text = load_texture("assets/images/game_over.png").await.unwrap();
         game_over_text.set_filter(FilterMode::Linear);
@@ -133,6 +113,22 @@ impl Renderer {
             field_y,
             next_anim: NextAnim::new(),
         }
+    }
+
+    fn install_egui_japanese_font(ctx: &egui::Context) {
+        let mut fonts = egui::FontDefinitions::default();
+        fonts.font_data.insert(
+            "japanese".to_owned(),
+            std::sync::Arc::new(egui::FontData::from_static(JAPANESE_FONT)),
+        );
+        for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+            fonts
+                .families
+                .entry(family)
+                .or_default()
+                .insert(0, "japanese".to_owned());
+        }
+        ctx.set_fonts(fonts);
     }
 
     pub fn draw_background(&self) {
@@ -213,7 +209,7 @@ impl Renderer {
             0.0,
         );
         self.draw_centered_text(
-            "Press O for Settings",
+            "Press S for Settings",
             16.0,
             Color::new(1.0, 1.0, 1.0, 0.7),
             40.0,
@@ -458,7 +454,7 @@ impl Renderer {
         );
     }
 
-    /// 設定画面を描画。閉じるボタンが押されたら true を返す。
+    /// 設定画面を描画。
     /// 同フレームで他の egui 関数を呼ばないこと（ui() が上書きされるため）。
     pub fn draw_settings(
         &self,
@@ -466,8 +462,8 @@ impl Renderer {
         bgm_volume: &mut f32,
         se_volume: &mut f32,
         showing_credits: &mut bool,
-    ) -> bool {
-        let mut close = false;
+    ) -> SettingsResult {
+        let mut result = SettingsResult::default();
         let credits = *showing_credits;
 
         egui_macroquad::ui(|ctx| {
@@ -476,44 +472,103 @@ impl Renderer {
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
                 .frame(
-                    egui::Frame::window(&ctx.style())
-                        .inner_margin(egui::Margin::symmetric(20, 10)),
+                    egui::Frame::window(&ctx.style()).inner_margin(egui::Margin::symmetric(30, 22)),
                 )
                 .show(ctx, |ui| {
+                    ui.spacing_mut().slider_width = 160.0;
                     if credits {
-                        ui.label("BGM:");
-                        ui.label("ニコニコモンズ: nc148246");
-                        ui.add_space(10.0);
-                        ui.label("SE:");
-                        ui.label("ニコニコモンズ: nc268086");
-                        ui.add_space(10.0);
-                        if ui.button("Back").clicked() {
-                            *showing_credits = false;
-                        }
+                        let category = |text: &str| {
+                            egui::RichText::new(text)
+                                .size(13.0)
+                                .color(egui::Color32::from_gray(150))
+                        };
+                        let value = |text: &str| egui::RichText::new(text).size(14.0);
+
+                        egui::Grid::new("credits_grid")
+                            .num_columns(2)
+                            .spacing([20.0, 14.0])
+                            .show(ui, |ui| {
+                                ui.label(category("BGM"));
+                                ui.label(value("ニコニコモンズ: nc148246"));
+                                ui.end_row();
+
+                                ui.label(category("SE"));
+                                ui.label(value("ニコニコモンズ: nc268086"));
+                                ui.end_row();
+                            });
+                        ui.add_space(28.0);
+                        ui.vertical_centered(|ui| {
+                            let back = egui::Button::new(egui::RichText::new("Back").size(13.0))
+                                .min_size(egui::vec2(120.0, 30.0));
+                            if ui.add(back).clicked() {
+                                *showing_credits = false;
+                            }
+                        });
                     } else {
-                        ui.horizontal(|ui| {
-                            ui.label("Puyo colors:");
-                            ui.add(egui::Slider::new(puyo_colors, 3..=5));
+                        egui::Grid::new("settings_grid")
+                            .num_columns(3)
+                            .spacing([16.0, 14.0])
+                            .show(ui, |ui| {
+                                ui.label("Puyo colors");
+                                ui.add(egui::Slider::new(puyo_colors, 3..=5).show_value(false));
+                                ui.label(format!("{}", *puyo_colors));
+                                ui.end_row();
+
+                                ui.label("BGM volume");
+                                ui.add(egui::Slider::new(bgm_volume, 0.0..=1.0).show_value(false));
+                                ui.label(format!("{:.2}", *bgm_volume));
+                                ui.end_row();
+
+                                ui.label("SE volume");
+                                let se_resp = ui
+                                    .add(egui::Slider::new(se_volume, 0.0..=1.0).show_value(false));
+                                if se_resp.drag_stopped() {
+                                    result.test_se = true;
+                                }
+                                ui.label(format!("{:.2}", *se_volume));
+                                ui.end_row();
+                            });
+                        ui.add_space(24.0);
+                        ui.vertical_centered(|ui| {
+                            // Credits: テキストのみ。hover で色を明るくして「太くなった」感を出す
+                            let hover_id = egui::Id::new("credits_link_hover");
+                            let was_hovered =
+                                ui.data(|d| d.get_temp::<bool>(hover_id).unwrap_or(false));
+                            let credits_text = egui::RichText::new("Credits")
+                                .size(13.0)
+                                .underline()
+                                .color(if was_hovered {
+                                    egui::Color32::from_gray(230)
+                                } else {
+                                    egui::Color32::from_gray(150)
+                                })
+                                .strong();
+                            let credits_resp =
+                                ui.add(egui::Button::new(credits_text).frame(false));
+                            ui.data_mut(|d| d.insert_temp(hover_id, credits_resp.hovered()));
+                            if credits_resp.clicked() {
+                                *showing_credits = true;
+                            }
+                            ui.add_space(14.0);
+                            // Close: 控えめサイズで一番下
+                            let close_btn =
+                                egui::Button::new(egui::RichText::new("Close (ESC)").size(13.0))
+                                    .min_size(egui::vec2(120.0, 30.0));
+                            if ui.add(close_btn).clicked() {
+                                result.close = true;
+                            }
                         });
-                        ui.horizontal(|ui| {
-                            ui.label("BGM volume:");
-                            ui.add(egui::Slider::new(bgm_volume, 0.0..=1.0));
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("SE volume: ");
-                            ui.add(egui::Slider::new(se_volume, 0.0..=1.0));
-                        });
-                        ui.add_space(10.0);
-                        if ui.button("Credits").clicked() {
-                            *showing_credits = true;
-                        }
-                        if ui.button("Close (ESC)").clicked() {
-                            close = true;
-                        }
                     }
                 });
         });
         egui_macroquad::draw();
-        close
+        result
     }
+}
+
+/// 設定画面から発生したイベント
+#[derive(Default)]
+pub struct SettingsResult {
+    pub close: bool,
+    pub test_se: bool,
 }
