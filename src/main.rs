@@ -1,3 +1,4 @@
+mod audio;
 mod controller;
 mod game;
 mod render;

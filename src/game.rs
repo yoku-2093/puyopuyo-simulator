@@ -58,6 +58,11 @@ impl PuyoPuyo {
     }
 }
 
+/// ゲーム中に発生するイベント（コントローラーが取り出して処理する）
+pub enum GameEvent {
+    PuyoLanded, // ぷよが設置された
+}
+
 /// PuyoPuyo を生成するファクトリ
 pub struct PuyoPuyoFactory {
     num_colors: usize,
@@ -322,6 +327,7 @@ fn puyo_color(puyo: Puyo) -> Color {
 // positionのrowは幽霊行を含む行番号で管理する（例: position.row == 0 は最上幽霊行）
 pub struct GameField {
     factory: PuyoPuyoFactory, // ぷよ生成用ファクトリ
+    events: Vec<GameEvent>,   // 発生したイベント（コントローラーが drain する）
     puyopuyo: PuyoPuyo, // 落下中のぷよ
     position: Position, // 軸ぷよの位置
     display_col: f64,   // 軸の表示位置（補間用）
@@ -392,7 +398,13 @@ impl GameField {
             particles: Vec::new(),
             spawn_count: 0,
             factory,
+            events: Vec::new(),
         }
+    }
+
+    /// 発生したイベントを取り出す（取り出し後はクリア）
+    pub fn drain_events(&mut self) -> Vec<GameEvent> {
+        std::mem::take(&mut self.events)
     }
 
     pub fn is_game_over(&self) -> bool {
@@ -584,6 +596,7 @@ impl GameField {
                     row: FieldRow(f.target_row),
                     start_time: now,
                 });
+                self.events.push(GameEvent::PuyoLanded);
             } else {
                 i += 1;
             }
@@ -969,6 +982,7 @@ impl GameField {
             if target <= row.index() {
                 // 着地先が現在位置以上なら直接配置（上に落ちることはない）
                 self.field[target][ci] = Some(puyo);
+                self.events.push(GameEvent::PuyoLanded);
             } else {
                 offsets[ci] += 1;
                 self.dropping

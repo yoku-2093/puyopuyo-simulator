@@ -80,9 +80,31 @@ impl Renderer {
             .await
             .unwrap();
 
-        let font = load_ttf_font("assets/fonts/Hiragino_Sans_W6.ttf")
+        // フォントを bytes として読み込み、macroquad と egui で共有
+        let font_bytes = load_file("assets/fonts/Hiragino_Sans_W6.ttf")
             .await
             .unwrap();
+        let font = load_ttf_font_from_bytes(&font_bytes).unwrap();
+
+        // egui に同じフォントを日本語対応として登録
+        egui_macroquad::cfg(|ctx| {
+            let mut fonts = egui::FontDefinitions::default();
+            fonts.font_data.insert(
+                "japanese".to_owned(),
+                std::sync::Arc::new(egui::FontData::from_owned(font_bytes)),
+            );
+            fonts
+                .families
+                .entry(egui::FontFamily::Proportional)
+                .or_default()
+                .insert(0, "japanese".to_owned());
+            fonts
+                .families
+                .entry(egui::FontFamily::Monospace)
+                .or_default()
+                .insert(0, "japanese".to_owned());
+            ctx.set_fonts(fonts);
+        });
 
         let game_over_text = load_texture("assets/images/game_over.png").await.unwrap();
         game_over_text.set_filter(FilterMode::Linear);
@@ -436,11 +458,13 @@ impl Renderer {
         );
     }
 
-    /// 設定画面を描画。閉じるボタンが押されたら true を返す
+    /// 設定画面を描画。閉じるボタンが押されたら true を返す。
+    /// 同フレームで他の egui 関数を呼ばないこと（ui() が上書きされるため）。
     pub fn draw_settings(
         &self,
         puyo_colors: &mut usize,
         bgm_volume: &mut f32,
+        se_volume: &mut f32,
         showing_credits: &mut bool,
     ) -> bool {
         let mut close = false;
@@ -451,11 +475,17 @@ impl Renderer {
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .frame(
+                    egui::Frame::window(&ctx.style())
+                        .inner_margin(egui::Margin::symmetric(20, 10)),
+                )
                 .show(ctx, |ui| {
                     if credits {
-                        ui.label("BGM (Niconico Commons):");
-                        ui.hyperlink("https://commons.nicovideo.jp/works/agreement/nc2971");
-                        ui.hyperlink("https://commons.nicovideo.jp/works/agreement/nc268086");
+                        ui.label("BGM:");
+                        ui.label("ニコニコモンズ: nc148246");
+                        ui.add_space(10.0);
+                        ui.label("SE:");
+                        ui.label("ニコニコモンズ: nc268086");
                         ui.add_space(10.0);
                         if ui.button("Back").clicked() {
                             *showing_credits = false;
@@ -469,6 +499,10 @@ impl Renderer {
                             ui.label("BGM volume:");
                             ui.add(egui::Slider::new(bgm_volume, 0.0..=1.0));
                         });
+                        ui.horizontal(|ui| {
+                            ui.label("SE volume: ");
+                            ui.add(egui::Slider::new(se_volume, 0.0..=1.0));
+                        });
                         ui.add_space(10.0);
                         if ui.button("Credits").clicked() {
                             *showing_credits = true;
@@ -479,11 +513,7 @@ impl Renderer {
                     }
                 });
         });
-        close
-    }
-
-    /// egui の描画をフレーム終了時に出力する（フレームに1回だけ呼ぶ）
-    pub fn flush_egui(&self) {
         egui_macroquad::draw();
+        close
     }
 }

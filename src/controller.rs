@@ -1,4 +1,5 @@
-use crate::game::{COLS, GameField, PlayContext, ROWS};
+use crate::audio::Audio;
+use crate::game::{COLS, GameEvent, GameField, PlayContext, ROWS};
 use crate::render::{NextPuyo, Renderer};
 use crate::settings::Settings;
 use macroquad::prelude::*;
@@ -21,16 +22,21 @@ pub struct Controller {
     renderer: Renderer,
     ctx: PlayContext,
     settings: Settings,
+    audio: Audio,
 }
 
 impl Controller {
     pub async fn new(window_width: f32, window_height: f32) -> Self {
         let renderer = Renderer::new(window_width, window_height, COLS, ROWS).await;
+        let audio = Audio::new().await;
+        let settings = Settings::new();
+        audio.start_bgm(settings.bgm_volume);
         Controller {
             screen: Screen::new(),
             renderer,
             ctx: PlayContext::new(),
-            settings: Settings::new(),
+            settings,
+            audio,
         }
     }
 
@@ -43,8 +49,6 @@ impl Controller {
             Screen::GameOver => self.update_game_over(),
             Screen::Settings => self.update_settings(),
         }
-        // egui の描画はフレームに1回だけ
-        self.renderer.flush_egui();
     }
 
     fn update_title(&mut self) {
@@ -62,8 +66,11 @@ impl Controller {
         let close = self.renderer.draw_settings(
             &mut self.settings.puyo_colors,
             &mut self.settings.bgm_volume,
+            &mut self.settings.se_volume,
             &mut self.settings.showing_credits,
         );
+        // BGM 音量を反映
+        self.audio.set_bgm_volume(self.settings.bgm_volume);
         if close || is_key_pressed(KeyCode::Escape) {
             self.screen = Screen::Title;
         }
@@ -85,6 +92,13 @@ impl Controller {
 
         field.tick(&mut self.ctx, now);
         field.update(&mut self.ctx, now);
+
+        // ゲームから発生したイベントを処理
+        for event in field.drain_events() {
+            match event {
+                GameEvent::PuyoLanded => self.audio.play_puyo(self.settings.se_volume),
+            }
+        }
 
         if field.is_game_over() {
             self.screen = Screen::GameOver;
