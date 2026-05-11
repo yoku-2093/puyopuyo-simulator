@@ -10,7 +10,7 @@ impl Settings {
     pub fn new() -> Self {
         Settings {
             puyo_colors: 4,
-            bgm_volume: 0.5,
+            bgm_volume: 0.0,
             se_volume: 0.5,
             showing_credits: false,
         }
