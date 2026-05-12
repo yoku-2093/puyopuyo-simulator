@@ -11,7 +11,6 @@ wasm-build:
     cp target/wasm32-unknown-unknown/release/puyopuyo-simulator.wasm dist/
     cp web/index.html web/sapp_jsutils.js web/quad-storage.js dist/
     cp -r assets dist/
-    rm -f dist/assets/fonts/NotoSansJP-VariableFont_wght.ttf
     @echo "Build complete: dist/"
 
 # WASM をビルド → 自動 watch + ローカルサーバ配信 (http://localhost:4000)
