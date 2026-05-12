@@ -14,13 +14,14 @@ wasm-build:
     rm -f dist/assets/fonts/NotoSansJP-VariableFont_wght.ttf
     @echo "Build complete: dist/"
 
-# WASM をビルドしてローカルサーバで配信 (http://localhost:4000)
+# WASM をビルド → 自動 watch + ローカルサーバ配信 (http://localhost:4000)
 wasm-serve port="4000": wasm-build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo watch --postpone -w src -w web -s 'just wasm-build' &
+    WATCH_PID=$!
+    trap "kill $WATCH_PID 2>/dev/null || true" EXIT INT TERM
     cd dist && python3 -m http.server {{port}}
-
-# src/ や web/ の変更を監視して自動で wasm-build。ブラウザリロードは手動
-wasm-watch:
-    cargo watch -w src -w web -s 'just wasm-build'
 
 # dist/ を削除
 wasm-clean:
