@@ -29,7 +29,7 @@ impl Controller {
     pub async fn new(window_width: f32, window_height: f32) -> Self {
         let renderer = Renderer::new(window_width, window_height, COLS, ROWS).await;
         let audio = Audio::new().await;
-        let settings = Settings::new();
+        let settings = Settings::load();
         audio.start_bgm(settings.bgm_volume);
         Controller {
             screen: Screen::new(),
@@ -76,6 +76,7 @@ impl Controller {
             self.audio.play_puyo(self.settings.se_volume);
         }
         if result.close || is_key_pressed(KeyCode::Escape) {
+            self.settings.save();
             self.screen = Screen::Title;
         }
     }

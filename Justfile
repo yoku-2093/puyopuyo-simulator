@@ -9,7 +9,7 @@ wasm-build:
     rm -rf dist
     mkdir -p dist
     cp target/wasm32-unknown-unknown/release/puyopuyo-simulator.wasm dist/
-    cp web/index.html dist/
+    cp web/index.html web/sapp_jsutils.js web/quad-storage.js dist/
     cp -r assets dist/
     rm -f dist/assets/fonts/NotoSansJP-VariableFont_wght.ttf
     @echo "Build complete: dist/"
@@ -17,6 +17,10 @@ wasm-build:
 # WASM をビルドしてローカルサーバで配信 (http://localhost:4000)
 wasm-serve port="4000": wasm-build
     cd dist && python3 -m http.server {{port}}
+
+# src/ や web/ の変更を監視して自動で wasm-build。ブラウザリロードは手動
+wasm-watch:
+    cargo watch -w src -w web -s 'just wasm-build'
 
 # dist/ を削除
 wasm-clean:
