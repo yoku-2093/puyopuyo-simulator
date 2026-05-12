@@ -1,19 +1,36 @@
 # PuyoPuyo Simulator
 
-Rust + macroquad で書かれたぷよぷよシミュレータ。
+ぷよぷよのシミュレータ。実際のプレイ感に近づけつつ連鎖のシミュレーションを試せる環境を用意することで、esportsとしてのぷよぷよへの貢献を目指す。
+Rust + macroquad 製。
 
-## Development
+🎮 **Play**: https://yoku-2093.github.io/puyopuyo-simulator/
+
+<!-- 録画 / スクショを置きたい時はここ -->
+<!-- ![demo](docs/demo.gif) -->
+
+## Controls
+
+| Key | Action |
+|---|---|
+| ← / → | Move |
+| ↓ | Soft drop |
+| Z | Rotate left |
+| X | Rotate right |
+| Enter / Space | Start |
+| S | Settings |
+| Esc | Back to title |
+
+## Run locally
 
 ```sh
-cargo run               # ネイティブで起動
-just wasm-serve         # WASM ビルド + 監視 + http://localhost:4000 で配信
+cargo run               # Desktop
+just wasm-serve         # Web (http://localhost:4000)
 ```
 
-`just` でレシピ一覧を表示。
+`just` でレシピ一覧表示。
 
-## Documentation
+## Tech stack
 
-- [docs/assets.md](docs/assets.md) — フォント・画像・音声の管理
-- [docs/deployment.md](docs/deployment.md) — GitHub Pages へのデプロイ
-- [docs/macroquad-guide.md](docs/macroquad-guide.md) — macroquad API リファレンス（メモ）
-- [docs/egui-macroquad-guide.md](docs/egui-macroquad-guide.md) — egui-macroquad の使い方
+- [macroquad](https://macroquad.rs/) — game framework
+- [egui-macroquad](https://github.com/optozorax/egui-macroquad) — settings UI
+- [quad-storage](https://github.com/optozorax/quad-storage) — local persistence
