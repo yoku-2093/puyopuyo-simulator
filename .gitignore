@@ -4,3 +4,4 @@ tmp/
 .mcp.json
 .DS_Store
 dist/
+local.data

@@ -53,6 +53,7 @@ pub struct Renderer {
     field_x: f32,
     field_y: f32,
     next_anim: NextAnim,
+    egui_fonts_installed: bool,
 }
 
 impl Renderer {
@@ -83,8 +84,10 @@ impl Renderer {
             .unwrap();
 
         // 日本語フォント。include_bytes! でバイナリに埋め込み、macroquad と egui で共有
+        // egui への登録は ui() 初回呼び出し時に lazy init で行う (Renderer::new() で
+        // egui_macroquad::cfg を呼ぶと macroquad のメインループ開始前に
+        // input subscriber が登録されてマウス入力が壊れるため)
         let font = load_ttf_font_from_bytes(JAPANESE_FONT).unwrap();
-        egui_macroquad::cfg(|ctx| Self::install_egui_japanese_font(ctx));
 
         let game_over_text = load_texture("assets/images/game_over.png").await.unwrap();
         game_over_text.set_filter(FilterMode::Linear);
@@ -112,6 +115,7 @@ impl Renderer {
             field_x,
             field_y,
             next_anim: NextAnim::new(),
+            egui_fonts_installed: false,
         }
     }
 
@@ -463,7 +467,7 @@ impl Renderer {
     /// 設定画面を描画。
     /// 同フレームで他の egui 関数を呼ばないこと（ui() が上書きされるため）。
     pub fn draw_settings(
-        &self,
+        &mut self,
         puyo_colors: &mut usize,
         bgm_volume: &mut f32,
         se_volume: &mut f32,
@@ -471,8 +475,13 @@ impl Renderer {
     ) -> SettingsResult {
         let mut result = SettingsResult::default();
         let credits = *showing_credits;
+        let need_install_fonts = !std::mem::replace(&mut self.egui_fonts_installed, true);
 
         egui_macroquad::ui(|ctx| {
+            // 初回のみ日本語フォントを egui に登録 (lazy init)
+            if need_install_fonts {
+                Self::install_egui_japanese_font(ctx);
+            }
             egui::Window::new(if credits { "Credits" } else { "Settings" })
                 .collapsible(false)
                 .resizable(false)
