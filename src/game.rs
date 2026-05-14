@@ -785,14 +785,19 @@ impl GameField {
     }
 
     fn handle_move_keys(&mut self, ctx: &mut PlayContext, now: f64) {
-        let dirs = [KeyCode::Left, KeyCode::Right, KeyCode::Down];
-        let just_pressed = dirs.iter().any(|&k| is_key_pressed(k));
-        let held = dirs.iter().any(|&k| is_key_down(k));
+        let left_held = is_key_down(KeyCode::Left);
+        let right_held = is_key_down(KeyCode::Right);
+        let down_held = is_key_down(KeyCode::Down);
+        let held = left_held || right_held || down_held;
 
         if !held {
             ctx.move_repeating = false;
             return;
         }
+
+        let just_pressed = is_key_pressed(KeyCode::Left)
+            || is_key_pressed(KeyCode::Right)
+            || is_key_pressed(KeyCode::Down);
 
         let interval = if ctx.move_repeating {
             MOVE_INTERVAL
@@ -803,13 +808,13 @@ impl GameField {
             return;
         }
 
-        if is_key_down(KeyCode::Left) {
+        if left_held {
             self.move_left();
         }
-        if is_key_down(KeyCode::Right) {
+        if right_held {
             self.move_right();
         }
-        if is_key_down(KeyCode::Down) {
+        if down_held {
             self.move_down();
         }
         ctx.last_move_time = now;
