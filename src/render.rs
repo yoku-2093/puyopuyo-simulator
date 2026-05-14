@@ -8,6 +8,61 @@ const NEXT_ANIM_DURATION: f64 = 0.15; // ネクスト遷移アニメーション
 
 const JAPANESE_FONT: &[u8] = include_bytes!("../assets/fonts/NotoSansJP.ttf");
 
+// ===== Settings / Credits 画面のレイアウト定数 =====
+// 「DY」「DX」は panel の左上 (panel_x, panel_y) からのオフセット
+
+// パネル本体
+const PANEL_W: f32 = 480.0;
+const PANEL_H: f32 = 480.0;
+const PANEL_BORDER: f32 = 2.0;
+const PANEL_BG: Color = Color::new(0.0, 0.0, 0.0, 0.85);
+
+// タイトル ("Settings" / "Credits")
+const PANEL_TITLE_DY: f32 = 40.0;
+const PANEL_TITLE_FONT: u16 = 22;
+
+// ナビゲーションヒント (Settings 画面のみ)
+const HINT_LINE1_DY: f32 = 80.0;
+const HINT_LINE2_DY: f32 = 97.0;
+const HINT_FONT: u16 = 12;
+
+// スライダー (Settings 画面)
+const SLIDER_TOP_DY: f32 = 130.0;
+const SLIDER_ROW_H: f32 = 48.0;
+const SLIDER_LABEL_DX: f32 = 50.0;
+const SLIDER_BAR_DX: f32 = 165.0;
+const SLIDER_BAR_W: f32 = 175.0;
+const SLIDER_VALUE_DX: f32 = 355.0;
+const FOCUS_MARKER_GAP: f32 = 22.0; // ラベルの左に置く focus marker のオフセット
+const VALUE_FONT: u16 = 14;
+
+// Test ボタン (BGM/SE 共通、スライダー右隣)
+const TEST_BTN_DX: f32 = 400.0;
+const TEST_BTN_W: f32 = 60.0;
+const TEST_BTN_H: f32 = 24.0;
+const TEST_BTN_FONT: u16 = 12;
+
+// Back ボタン (Settings 画面下部)
+const BACK_BTN_W: f32 = 140.0;
+const BACK_BTN_H: f32 = 32.0;
+const BACK_BTN_BOTTOM_GAP: f32 = 60.0;
+
+// Credits ボタン (Credits 画面の "Back" は別サイズ)
+const CRED_BACK_W: f32 = 120.0;
+const CRED_BACK_H: f32 = 32.0;
+
+// Credits 画面の項目
+const CRED_CAT_DX: f32 = 60.0;
+const CRED_VAL_DX: f32 = 140.0;
+const CRED_BGM_ROW_DY: f32 = 110.0;
+const CRED_SE_ROW_DY: f32 = 150.0;
+const CRED_CAT_FONT: u16 = 13;
+const CRED_VAL_FONT: u16 = 14;
+const CRED_CAT_COLOR: Color = Color::new(0.6, 0.6, 0.6, 1.0);
+
+// ヒント文字色
+const HINT_COLOR: Color = Color::new(1.0, 1.0, 1.0, 0.5);
+
 pub struct NextPuyo {
     pub axis: Puyo,
     pub child: Puyo,
@@ -452,135 +507,123 @@ impl Renderer {
         focused_index: usize,
     ) {
         // パネル領域 (画面中央)
-        let panel_w = 480.0;
-        let panel_h = 480.0;
-        let panel_x = (self.window_width - panel_w) / 2.0;
-        let panel_y = (self.window_height - panel_h) / 2.0;
-        let panel_cx = panel_x + panel_w / 2.0;
+        let panel_x = (self.window_width - PANEL_W) / 2.0;
+        let panel_y = (self.window_height - PANEL_H) / 2.0;
+        let panel_cx = panel_x + PANEL_W / 2.0;
 
         // パネル背景
-        draw_rectangle(
-            panel_x,
-            panel_y,
-            panel_w,
-            panel_h,
-            Color::new(0.0, 0.0, 0.0, 0.85),
-        );
-        draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 2.0, WHITE);
+        draw_rectangle(panel_x, panel_y, PANEL_W, PANEL_H, PANEL_BG);
+        draw_rectangle_lines(panel_x, panel_y, PANEL_W, PANEL_H, PANEL_BORDER, WHITE);
 
         if showing_credits {
             // ===== Credits 画面 =====
             self.draw_text_anchored(
                 "Credits",
                 panel_cx,
-                panel_y + 40.0,
-                22,
+                panel_y + PANEL_TITLE_DY,
+                PANEL_TITLE_FONT,
                 WHITE,
                 TextAlign::Center,
             );
 
-            let category_color = Color::new(0.6, 0.6, 0.6, 1.0);
-            let cat_x = panel_x + 60.0;
-            let val_x = panel_x + 140.0;
+            let cat_x = panel_x + CRED_CAT_DX;
+            let val_x = panel_x + CRED_VAL_DX;
+            let bgm_y = panel_y + CRED_BGM_ROW_DY;
+            let se_y = panel_y + CRED_SE_ROW_DY;
 
             self.draw_text_anchored(
                 "BGM",
                 cat_x,
-                panel_y + 110.0,
-                13,
-                category_color,
+                bgm_y,
+                CRED_CAT_FONT,
+                CRED_CAT_COLOR,
                 TextAlign::Left,
             );
             self.draw_text_anchored(
                 "ニコニコモンズ: nc148246",
                 val_x,
-                panel_y + 110.0,
-                14,
+                bgm_y,
+                CRED_VAL_FONT,
                 WHITE,
                 TextAlign::Left,
             );
             self.draw_text_anchored(
                 "SE",
                 cat_x,
-                panel_y + 150.0,
-                13,
-                category_color,
+                se_y,
+                CRED_CAT_FONT,
+                CRED_CAT_COLOR,
                 TextAlign::Left,
             );
             self.draw_text_anchored(
                 "ニコニコモンズ: nc268086",
                 val_x,
-                panel_y + 150.0,
-                14,
+                se_y,
+                CRED_VAL_FONT,
                 WHITE,
                 TextAlign::Left,
             );
 
             // Back ボタン (Credits 画面では index 0 だけ focusable)
-            let back_w = 120.0;
-            let back_h = 32.0;
             let back_rect = Rect::new(
-                panel_cx - back_w / 2.0,
-                panel_y + panel_h - 60.0,
-                back_w,
-                back_h,
+                panel_cx - CRED_BACK_W / 2.0,
+                panel_y + PANEL_H - BACK_BTN_BOTTOM_GAP,
+                CRED_BACK_W,
+                CRED_BACK_H,
             );
-            self.draw_panel_button(back_rect, "Back", 14, focused_index == 0);
+            self.draw_panel_button(back_rect, "Back", VALUE_FONT, focused_index == 0);
         } else {
             // ===== 設定画面 =====
             self.draw_text_anchored(
                 "Settings",
                 panel_cx,
-                panel_y + 40.0,
-                22,
+                panel_y + PANEL_TITLE_DY,
+                PANEL_TITLE_FONT,
                 WHITE,
                 TextAlign::Center,
             );
 
             // ナビゲーションヒント (タイトル画面と同じトーンで)
-            let hint_color = Color::new(1.0, 1.0, 1.0, 0.5);
             self.draw_text_anchored(
                 "Navigate: \u{2191} / \u{2193}    Adjust: \u{2190} / \u{2192}",
                 panel_cx,
-                panel_y + 80.0,
-                12,
-                hint_color,
+                panel_y + HINT_LINE1_DY,
+                HINT_FONT,
+                HINT_COLOR,
                 TextAlign::Center,
             );
             self.draw_text_anchored(
                 "Select: Enter / Space    Back: Esc",
                 panel_cx,
-                panel_y + 97.0,
-                12,
-                hint_color,
+                panel_y + HINT_LINE2_DY,
+                HINT_FONT,
+                HINT_COLOR,
                 TextAlign::Center,
             );
 
-            let slider_label_x = panel_x + 50.0;
-            let slider_bar_x = panel_x + 165.0;
-            let slider_bar_w = 175.0;
-            let slider_value_x = panel_x + 355.0;
-            let test_btn_x = panel_x + 400.0;
-            let test_btn_w = 60.0;
-            let test_btn_h = 24.0;
-            let slider_row_h = 48.0;
-            let slider_top = panel_y + 130.0;
+            let slider_label_x = panel_x + SLIDER_LABEL_DX;
+            let slider_bar_x = panel_x + SLIDER_BAR_DX;
+            let slider_value_x = panel_x + SLIDER_VALUE_DX;
+            let test_btn_x = panel_x + TEST_BTN_DX;
+            let slider_top = panel_y + SLIDER_TOP_DY;
+            let focus_marker_x = slider_label_x - FOCUS_MARKER_GAP;
+            let row_y = |i: usize| slider_top + SLIDER_ROW_H * (i as f32 + 0.5);
 
             // Puyo colors (focus index 0)
-            let row1_y = slider_top + slider_row_h * 0.5;
-            self.draw_focus_marker(slider_label_x - 22.0, row1_y, focused_index == 0);
+            let y0 = row_y(0);
+            self.draw_focus_marker(focus_marker_x, y0, focused_index == 0);
             self.draw_text_anchored(
                 "Puyo colors",
                 slider_label_x,
-                row1_y,
-                14,
+                y0,
+                VALUE_FONT,
                 focus_color(focused_index == 0),
                 TextAlign::Left,
             );
             self.draw_panel_slider(
                 slider_bar_x,
-                row1_y,
-                slider_bar_w,
+                y0,
+                SLIDER_BAR_W,
                 puyo_colors as f32,
                 3.0,
                 5.0,
@@ -589,27 +632,27 @@ impl Renderer {
             self.draw_text_anchored(
                 &format!("{}", puyo_colors),
                 slider_value_x,
-                row1_y,
-                14,
+                y0,
+                VALUE_FONT,
                 WHITE,
                 TextAlign::Left,
             );
 
-            // BGM volume + Test/Stop (focus index 1 / 3)
-            let row2_y = slider_top + slider_row_h * 1.5;
-            self.draw_focus_marker(slider_label_x - 22.0, row2_y, focused_index == 1);
+            // BGM volume (focus index 1) + Test/Stop (focus index 2)
+            let y1 = row_y(1);
+            self.draw_focus_marker(focus_marker_x, y1, focused_index == 1);
             self.draw_text_anchored(
                 "BGM volume",
                 slider_label_x,
-                row2_y,
-                14,
+                y1,
+                VALUE_FONT,
                 focus_color(focused_index == 1),
                 TextAlign::Left,
             );
             self.draw_panel_slider(
                 slider_bar_x,
-                row2_y,
-                slider_bar_w,
+                y1,
+                SLIDER_BAR_W,
                 bgm_volume,
                 0.0,
                 1.0,
@@ -618,35 +661,36 @@ impl Renderer {
             self.draw_text_anchored(
                 &format!("{:.2}", bgm_volume),
                 slider_value_x,
-                row2_y,
-                14,
+                y1,
+                VALUE_FONT,
                 WHITE,
                 TextAlign::Left,
             );
-            let test_btn_rect = Rect::new(
-                test_btn_x,
-                row2_y - test_btn_h / 2.0,
-                test_btn_w,
-                test_btn_h,
+            let bgm_test_rect =
+                Rect::new(test_btn_x, y1 - TEST_BTN_H / 2.0, TEST_BTN_W, TEST_BTN_H);
+            let bgm_test_label = if bgm_playing { "Stop" } else { "Test" };
+            self.draw_panel_button(
+                bgm_test_rect,
+                bgm_test_label,
+                TEST_BTN_FONT,
+                focused_index == 2,
             );
-            let test_label = if bgm_playing { "Stop" } else { "Test" };
-            self.draw_panel_button(test_btn_rect, test_label, 12, focused_index == 2);
 
-            // SE volume (focus index 3)
-            let row3_y = slider_top + slider_row_h * 2.5;
-            self.draw_focus_marker(slider_label_x - 22.0, row3_y, focused_index == 3);
+            // SE volume (focus index 3) + Test (focus index 4)
+            let y2 = row_y(2);
+            self.draw_focus_marker(focus_marker_x, y2, focused_index == 3);
             self.draw_text_anchored(
                 "SE volume",
                 slider_label_x,
-                row3_y,
-                14,
+                y2,
+                VALUE_FONT,
                 focus_color(focused_index == 3),
                 TextAlign::Left,
             );
             self.draw_panel_slider(
                 slider_bar_x,
-                row3_y,
-                slider_bar_w,
+                y2,
+                SLIDER_BAR_W,
                 se_volume,
                 0.0,
                 1.0,
@@ -655,34 +699,32 @@ impl Renderer {
             self.draw_text_anchored(
                 &format!("{:.2}", se_volume),
                 slider_value_x,
-                row3_y,
-                14,
+                y2,
+                VALUE_FONT,
                 WHITE,
                 TextAlign::Left,
             );
-            // SE Test ボタン (focus index 4)
-            let se_test_rect = Rect::new(
-                test_btn_x,
-                row3_y - test_btn_h / 2.0,
-                test_btn_w,
-                test_btn_h,
-            );
-            self.draw_panel_button(se_test_rect, "Test", 12, focused_index == 4);
+            let se_test_rect = Rect::new(test_btn_x, y2 - TEST_BTN_H / 2.0, TEST_BTN_W, TEST_BTN_H);
+            self.draw_panel_button(se_test_rect, "Test", TEST_BTN_FONT, focused_index == 4);
 
             // Credits link (focus index 5)
-            let credits_y = slider_top + slider_row_h * 3.5;
-            self.draw_panel_link("Credits", panel_cx, credits_y, 14, focused_index == 5);
+            let credits_y = row_y(3);
+            self.draw_panel_link(
+                "Credits",
+                panel_cx,
+                credits_y,
+                VALUE_FONT,
+                focused_index == 5,
+            );
 
             // Back button (focus index 6)
-            let close_btn_w = 140.0;
-            let close_btn_h = 32.0;
             let close_rect = Rect::new(
-                panel_cx - close_btn_w / 2.0,
-                panel_y + panel_h - 60.0,
-                close_btn_w,
-                close_btn_h,
+                panel_cx - BACK_BTN_W / 2.0,
+                panel_y + PANEL_H - BACK_BTN_BOTTOM_GAP,
+                BACK_BTN_W,
+                BACK_BTN_H,
             );
-            self.draw_panel_button(close_rect, "Back", 14, focused_index == 6);
+            self.draw_panel_button(close_rect, "Back", VALUE_FONT, focused_index == 6);
         }
     }
 
