@@ -915,60 +915,51 @@ impl GameField {
         self.score += cleared * 10 * multiplier;
     }
 
-    /// 連鎖数に応じた連鎖パワー
+    /// 連鎖数 (1-indexed) に応じた連鎖パワー (ぷよぷよ通の公式テーブル)
     fn chain_power(chain: u32) -> u32 {
-        match chain {
-            1 => 0,
-            2 => 8,
-            3 => 16,
-            4 => 32,
-            5 => 64,
-            6 => 96,
-            7 => 128,
-            8 => 160,
-            9 => 192,
-            10 => 224,
-            11 => 256,
-            12 => 288,
-            13 => 320,
-            14 => 352,
-            15 => 384,
-            16 => 416,
-            17 => 448,
-            18 => 480,
-            19 => 512,
-            _ => 512 + (chain - 19) * 32,
+        const TABLE: [u32; 19] = [
+            //  1   2   3   4   5    6    7    8    9   10
+            0,   8,  16,  32,  64,  96, 128, 160, 192, 224,
+            // 11  12  13  14   15   16   17   18   19
+            256, 288, 320, 352, 384, 416, 448, 480, 512,
+        ];
+        if chain == 0 {
+            return 0;
+        }
+        let idx = chain as usize - 1;
+        if idx < TABLE.len() {
+            TABLE[idx]
+        } else {
+            // 20 連鎖以降は +32 ずつ
+            TABLE[TABLE.len() - 1] + (chain - TABLE.len() as u32) * 32
         }
     }
 
     /// 同時に消えた色数に応じたボーナス
     fn color_bonus(groups: &[(Puyo, Vec<(usize, usize)>)]) -> u32 {
+        // index = 色数
+        const TABLE: [u32; 6] = [0, 0, 3, 6, 12, 24];
         let mut colors = std::collections::HashSet::new();
         for (puyo, _) in groups {
             colors.insert(*puyo);
         }
-        match colors.len() {
-            0 | 1 => 0,
-            2 => 3,
-            3 => 6,
-            4 => 12,
-            _ => 24,
-        }
+        let n = colors.len().min(TABLE.len() - 1);
+        TABLE[n]
     }
 
     /// 各グループのサイズに応じたボーナスの合計
     fn group_bonus(groups: &[(Puyo, Vec<(usize, usize)>)]) -> u32 {
+        // index = グループのサイズ。0..=4 は 0、5 以降は加算、11+ は 10 固定
+        const TABLE: [u32; 11] = [0, 0, 0, 0, 0, 2, 3, 4, 5, 6, 7];
         groups
             .iter()
-            .map(|(_, cells)| match cells.len() {
-                0..=4 => 0,
-                5 => 2,
-                6 => 3,
-                7 => 4,
-                8 => 5,
-                9 => 6,
-                10 => 7,
-                _ => 10,
+            .map(|(_, cells)| {
+                let n = cells.len();
+                if n < TABLE.len() {
+                    TABLE[n]
+                } else {
+                    10
+                }
             })
             .sum()
     }
