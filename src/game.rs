@@ -9,12 +9,12 @@ pub const ROWS: usize = 12; // 見えているフィールドの行数
 const DROP_INTERVAL: f64 = 0.5;
 const MOVE_INTERVAL: f64 = 0.05;
 const MOVE_REPEAT_DELAY: f64 = 0.2; // 初回入力からリピート開始までの猶予
-const LOCK_DELAY: f64 = 0.50; // 接地から固定までの猶予
-const LOCK_DELAY_FAST: f64 = 0.15; // 下キー押下時の固定猶予
-const QUICK_TURN_WINDOW: f64 = 0.3;
+const LOCK_DELAY: f64 = 0.70; // 接地から固定までの猶予
+const LOCK_DELAY_FAST: f64 = 0.18; // 下キー押下時の固定猶予
+const QUICK_TURN_WINDOW: f64 = 0.3; // 同方向 2 連打でクイックターンを発動する猶予
 const DROP_GRAVITY: f64 = 50.0; // ちぎり時の重力加速度（rows/s^2）
 const DROP_GRAVITY_INITIAL: f64 = 5.0; // ちぎり開始時の初速（rows/s）
-const DISPLAY_CHASE_RATE: f64 = 40.0; // 移動の表示位置追従速度
+const DISPLAY_CHASE_RATE: f64 = 70.0; // 移動の表示位置追従速度
 const ROTATION_CHASE_RATE: f64 = 20.0; // 回転の表示角度追従速度
 const SQUASHING_ANIM_DURATION: f64 = 0.15; // 着地スカッシュの長さ
 const SQUASHING_SQUASH_RATIO: f32 = 0.3; // 縦の潰れの最大量（0.3 = 30%縮む）
@@ -338,7 +338,8 @@ pub struct GameField {
     position: Position, // 軸ぷよの位置
     display_col: f64,   // 軸の表示位置（補間用）
     display_row: f64,
-    display_angle: f64,                        // 子ぷよの表示角度（補間用）
+    display_angle: f64,    // 子ぷよの表示角度（補間用、現在の見た目）
+    rotation_target: f64,  // 子ぷよの目標角度（累積、wrap なし）
     next: PuyoPuyo,                            // 次のぷよ
     next_next: PuyoPuyo,                       // 次の次のぷよ
     field: [[Option<Puyo>; COLS]; TOTAL_ROWS], // フィールド（幽霊行を含む）
@@ -361,7 +362,7 @@ pub struct PlayContext {
     move_repeating: bool, // リピート移動が開始されているか
     settling_start: f64,  // 接地待ち開始時刻
     sparkle_start: f64,   // パーティクル開始時刻
-    last_failed_rotation: Option<(Rotation, f64)>, // クイックターン判定用
+    last_rotation_press: Option<(Rotation, f64)>, // クイックターン用: 直近の回転キー押下
 }
 
 impl PlayContext {
@@ -375,7 +376,7 @@ impl PlayContext {
             move_repeating: false,
             settling_start: 0.0,
             sparkle_start: 0.0,
-            last_failed_rotation: None,
+            last_rotation_press: None,
         }
     }
 }
@@ -391,6 +392,7 @@ impl GameField {
             display_col: INITIAL_POSITION.col as f64,
             display_row: INITIAL_POSITION.row as f64,
             display_angle: Orientation::Up.to_angle(),
+            rotation_target: Orientation::Up.to_angle(),
             next: factory.create(),
             next_next: factory.create(),
             field: [[None; COLS]; TOTAL_ROWS],
@@ -681,6 +683,8 @@ impl GameField {
         self.spawn_next();
         ctx.play_state = PlayState::Active;
         ctx.last_drop_time = now;
+        ctx.move_repeating = false;
+        ctx.last_rotation_press = None;
     }
 }
 
@@ -830,17 +834,34 @@ impl GameField {
         }
     }
 
+    /// クイックターン候補位置: 縦向きで軸の両サイドが塞がれている。
+    fn in_quick_turn_position(&self) -> bool {
+        let (col, row) = (self.position.col as isize, self.position.row as isize);
+        matches!(
+            self.puyopuyo.orientation(),
+            Orientation::Up | Orientation::Down
+        ) && !self.can_pass((col - 1, row))
+            && !self.can_pass((col + 1, row))
+    }
+
     fn try_rotate(&mut self, ctx: &mut PlayContext, rotation: Rotation, now: f64) {
-        let is_quick = matches!(
-            ctx.last_failed_rotation,
+        // クイックターンは「縦向き + 両サイド塞がれ」かつ「同方向 2 連打」のときだけ。
+        let recent_same = matches!(
+            ctx.last_rotation_press,
             Some((r, t)) if r == rotation && now - t < QUICK_TURN_WINDOW
         );
+        let is_quick = recent_same && self.in_quick_turn_position();
 
         if self.rotate(rotation, is_quick) {
-            ctx.last_failed_rotation = None;
-        } else {
-            ctx.last_failed_rotation = Some((rotation, now));
+            // 表示用の累積角度を進める (wrap させずに方向を保持)
+            let steps = if is_quick { 2.0 } else { 1.0 };
+            let delta = match rotation {
+                Rotation::Right => std::f64::consts::FRAC_PI_2 * steps,
+                Rotation::Left => -std::f64::consts::FRAC_PI_2 * steps,
+            };
+            self.rotation_target += delta;
         }
+        ctx.last_rotation_press = Some((rotation, now));
     }
 }
 
@@ -857,15 +878,10 @@ impl GameField {
             self.display_row += (self.position.row as f64 - self.display_row) * move_factor;
 
             let rot_factor = (ROTATION_CHASE_RATE * dt).min(1.0);
-            let target = self.puyopuyo.orientation().to_angle();
-            let mut diff = target - self.display_angle;
-            if diff > std::f64::consts::PI {
-                diff -= 2.0 * std::f64::consts::PI;
-            }
-            if diff < -std::f64::consts::PI {
-                diff += 2.0 * std::f64::consts::PI;
-            }
-            self.display_angle += diff * rot_factor;
+            // rotation_target は単調変化する累積角度なので wrap 不要。
+            // 連打でも回転方向が反転しない。
+            self.display_angle +=
+                (self.rotation_target - self.display_angle) * rot_factor;
         }
 
         // 落下中のぷよの物理演算
@@ -902,6 +918,7 @@ impl GameField {
         self.display_col = INITIAL_POSITION.col as f64;
         self.display_row = INITIAL_POSITION.row as f64;
         self.display_angle = Orientation::Up.to_angle();
+        self.rotation_target = Orientation::Up.to_angle();
     }
 
     /// スコア加算: (消したぷよ数 × 10) × max(1, 連鎖ボーナス + 色ボーナス + グループボーナス)
