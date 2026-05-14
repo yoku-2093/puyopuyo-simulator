@@ -61,6 +61,8 @@ impl PuyoPuyo {
 /// ゲーム中に発生するイベント（コントローラーが取り出して処理する）
 pub enum GameEvent {
     PuyoLanded, // ぷよが設置された
+    ChainPop,   // 連鎖が発生した（1 連鎖につき 1 回）
+    GameOver,   // ゲームオーバーになった
 }
 
 /// PuyoPuyo を生成するファクトリ
@@ -641,6 +643,7 @@ impl GameField {
                 ctx.play_state = PlayState::Landed;
             } else {
                 self.add_chain_score(&groups);
+                self.events.push(GameEvent::ChainPop);
                 ctx.play_state = PlayState::Blinking;
             }
         }
@@ -678,6 +681,8 @@ impl GameField {
 
         if self.field[INITIAL_POSITION.row][INITIAL_POSITION.col].is_some() {
             self.is_game_over = true;
+            self.events.push(GameEvent::GameOver);
+            return;
         }
 
         self.spawn_next();

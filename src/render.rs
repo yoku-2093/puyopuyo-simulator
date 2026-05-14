@@ -556,7 +556,7 @@ impl Renderer {
                 TextAlign::Left,
             );
             self.draw_text_anchored(
-                "ニコニコモンズ: nc268086",
+                "ニコニコモンズ: nc268086,nc168010,nc389893",
                 val_x,
                 se_y,
                 CRED_VAL_FONT,

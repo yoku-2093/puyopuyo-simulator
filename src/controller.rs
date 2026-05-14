@@ -135,6 +135,8 @@ impl Controller {
         for event in field.drain_events() {
             match event {
                 GameEvent::PuyoLanded => self.audio.play_puyo(self.settings.se_volume),
+                GameEvent::ChainPop => self.audio.play_pop(self.settings.se_volume),
+                GameEvent::GameOver => self.audio.play_game_over(self.settings.se_volume),
             }
         }
 
