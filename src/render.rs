@@ -1,5 +1,4 @@
 use crate::types::Puyo;
-use egui_macroquad::egui;
 use macroquad::prelude::*;
 use std::collections::HashMap;
 
@@ -53,7 +52,6 @@ pub struct Renderer {
     field_x: f32,
     field_y: f32,
     next_anim: NextAnim,
-    egui_fonts_installed: bool,
 }
 
 impl Renderer {
@@ -83,10 +81,6 @@ impl Renderer {
             .await
             .unwrap();
 
-        // 日本語フォント。include_bytes! でバイナリに埋め込み、macroquad と egui で共有
-        // egui への登録は ui() 初回呼び出し時に lazy init で行う (Renderer::new() で
-        // egui_macroquad::cfg を呼ぶと macroquad のメインループ開始前に
-        // input subscriber が登録されてマウス入力が壊れるため)
         let font = load_ttf_font_from_bytes(JAPANESE_FONT).unwrap();
 
         let game_over_text = load_texture("assets/images/game_over.png").await.unwrap();
@@ -115,24 +109,7 @@ impl Renderer {
             field_x,
             field_y,
             next_anim: NextAnim::new(),
-            egui_fonts_installed: false,
         }
-    }
-
-    fn install_egui_japanese_font(ctx: &egui::Context) {
-        let mut fonts = egui::FontDefinitions::default();
-        fonts.font_data.insert(
-            "japanese".to_owned(),
-            std::sync::Arc::new(egui::FontData::from_static(JAPANESE_FONT)),
-        );
-        for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
-            fonts
-                .families
-                .entry(family)
-                .or_default()
-                .insert(0, "japanese".to_owned());
-        }
-        ctx.set_fonts(fonts);
     }
 
     pub fn draw_background(&self) {
@@ -464,125 +441,378 @@ impl Renderer {
         );
     }
 
-    /// 設定画面を描画。
-    /// 同フレームで他の egui 関数を呼ばないこと（ui() が上書きされるため）。
+    /// 設定画面を描画
     pub fn draw_settings(
-        &mut self,
-        puyo_colors: &mut usize,
-        bgm_volume: &mut f32,
-        se_volume: &mut f32,
-        showing_credits: &mut bool,
-    ) -> SettingsResult {
-        let mut result = SettingsResult::default();
-        let credits = *showing_credits;
-        let need_install_fonts = !std::mem::replace(&mut self.egui_fonts_installed, true);
+        &self,
+        puyo_colors: usize,
+        bgm_volume: f32,
+        se_volume: f32,
+        showing_credits: bool,
+        bgm_playing: bool,
+        focused_index: usize,
+    ) {
+        // パネル領域 (画面中央)
+        let panel_w = 480.0;
+        let panel_h = 480.0;
+        let panel_x = (self.window_width - panel_w) / 2.0;
+        let panel_y = (self.window_height - panel_h) / 2.0;
+        let panel_cx = panel_x + panel_w / 2.0;
 
-        egui_macroquad::ui(|ctx| {
-            // 初回のみ日本語フォントを egui に登録 (lazy init)
-            if need_install_fonts {
-                Self::install_egui_japanese_font(ctx);
-            }
-            egui::Window::new(if credits { "Credits" } else { "Settings" })
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-                .frame(
-                    egui::Frame::window(&ctx.style()).inner_margin(egui::Margin::symmetric(30, 22)),
-                )
-                .show(ctx, |ui| {
-                    ui.spacing_mut().slider_width = 160.0;
-                    if credits {
-                        let category = |text: &str| {
-                            egui::RichText::new(text)
-                                .size(13.0)
-                                .color(egui::Color32::from_gray(150))
-                        };
-                        let value = |text: &str| egui::RichText::new(text).size(14.0);
+        // パネル背景
+        draw_rectangle(
+            panel_x,
+            panel_y,
+            panel_w,
+            panel_h,
+            Color::new(0.0, 0.0, 0.0, 0.85),
+        );
+        draw_rectangle_lines(panel_x, panel_y, panel_w, panel_h, 2.0, WHITE);
 
-                        egui::Grid::new("credits_grid")
-                            .num_columns(2)
-                            .spacing([20.0, 14.0])
-                            .show(ui, |ui| {
-                                ui.label(category("BGM"));
-                                ui.label(value("ニコニコモンズ: nc148246"));
-                                ui.end_row();
+        if showing_credits {
+            // ===== Credits 画面 =====
+            self.draw_text_anchored(
+                "Credits",
+                panel_cx,
+                panel_y + 40.0,
+                22,
+                WHITE,
+                TextAlign::Center,
+            );
 
-                                ui.label(category("SE"));
-                                ui.label(value("ニコニコモンズ: nc268086"));
-                                ui.end_row();
-                            });
-                        ui.add_space(28.0);
-                        ui.vertical_centered(|ui| {
-                            let back = egui::Button::new(egui::RichText::new("Back").size(13.0))
-                                .min_size(egui::vec2(120.0, 30.0));
-                            if ui.add(back).clicked() {
-                                *showing_credits = false;
-                            }
-                        });
-                    } else {
-                        egui::Grid::new("settings_grid")
-                            .num_columns(3)
-                            .spacing([16.0, 14.0])
-                            .show(ui, |ui| {
-                                ui.label("Puyo colors");
-                                ui.add(egui::Slider::new(puyo_colors, 3..=5).show_value(false));
-                                ui.label(format!("{}", *puyo_colors));
-                                ui.end_row();
+            let category_color = Color::new(0.6, 0.6, 0.6, 1.0);
+            let cat_x = panel_x + 60.0;
+            let val_x = panel_x + 140.0;
 
-                                ui.label("BGM volume");
-                                ui.add(egui::Slider::new(bgm_volume, 0.0..=1.0).show_value(false));
-                                ui.label(format!("{:.2}", *bgm_volume));
-                                ui.end_row();
+            self.draw_text_anchored(
+                "BGM",
+                cat_x,
+                panel_y + 110.0,
+                13,
+                category_color,
+                TextAlign::Left,
+            );
+            self.draw_text_anchored(
+                "ニコニコモンズ: nc148246",
+                val_x,
+                panel_y + 110.0,
+                14,
+                WHITE,
+                TextAlign::Left,
+            );
+            self.draw_text_anchored(
+                "SE",
+                cat_x,
+                panel_y + 150.0,
+                13,
+                category_color,
+                TextAlign::Left,
+            );
+            self.draw_text_anchored(
+                "ニコニコモンズ: nc268086",
+                val_x,
+                panel_y + 150.0,
+                14,
+                WHITE,
+                TextAlign::Left,
+            );
 
-                                ui.label("SE volume");
-                                let se_resp = ui
-                                    .add(egui::Slider::new(se_volume, 0.0..=1.0).show_value(false));
-                                if se_resp.drag_stopped() {
-                                    result.test_se = true;
-                                }
-                                ui.label(format!("{:.2}", *se_volume));
-                                ui.end_row();
-                            });
-                        ui.add_space(24.0);
-                        ui.vertical_centered(|ui| {
-                            // Credits: テキストのみ。hover で色を明るくして「太くなった」感を出す
-                            let hover_id = egui::Id::new("credits_link_hover");
-                            let was_hovered =
-                                ui.data(|d| d.get_temp::<bool>(hover_id).unwrap_or(false));
-                            let credits_text = egui::RichText::new("Credits")
-                                .size(13.0)
-                                .underline()
-                                .color(if was_hovered {
-                                    egui::Color32::from_gray(230)
-                                } else {
-                                    egui::Color32::from_gray(150)
-                                })
-                                .strong();
-                            let credits_resp = ui.add(egui::Button::new(credits_text).frame(false));
-                            ui.data_mut(|d| d.insert_temp(hover_id, credits_resp.hovered()));
-                            if credits_resp.clicked() {
-                                *showing_credits = true;
-                            }
-                            ui.add_space(14.0);
-                            // Close: 控えめサイズで一番下
-                            let close_btn =
-                                egui::Button::new(egui::RichText::new("Close (ESC)").size(13.0))
-                                    .min_size(egui::vec2(120.0, 30.0));
-                            if ui.add(close_btn).clicked() {
-                                result.close = true;
-                            }
-                        });
-                    }
-                });
-        });
-        egui_macroquad::draw();
-        result
+            // Back ボタン (Credits 画面では index 0 だけ focusable)
+            let back_w = 120.0;
+            let back_h = 32.0;
+            let back_rect = Rect::new(
+                panel_cx - back_w / 2.0,
+                panel_y + panel_h - 60.0,
+                back_w,
+                back_h,
+            );
+            self.draw_panel_button(back_rect, "Back", 14, focused_index == 0);
+        } else {
+            // ===== 設定画面 =====
+            self.draw_text_anchored(
+                "Settings",
+                panel_cx,
+                panel_y + 40.0,
+                22,
+                WHITE,
+                TextAlign::Center,
+            );
+
+            // ナビゲーションヒント (タイトル画面と同じトーンで)
+            let hint_color = Color::new(1.0, 1.0, 1.0, 0.5);
+            self.draw_text_anchored(
+                "Navigate: \u{2191} / \u{2193}    Adjust: \u{2190} / \u{2192}",
+                panel_cx,
+                panel_y + 80.0,
+                12,
+                hint_color,
+                TextAlign::Center,
+            );
+            self.draw_text_anchored(
+                "Select: Enter / Space    Back: Esc",
+                panel_cx,
+                panel_y + 97.0,
+                12,
+                hint_color,
+                TextAlign::Center,
+            );
+
+            let slider_label_x = panel_x + 50.0;
+            let slider_bar_x = panel_x + 165.0;
+            let slider_bar_w = 175.0;
+            let slider_value_x = panel_x + 355.0;
+            let test_btn_x = panel_x + 400.0;
+            let test_btn_w = 60.0;
+            let test_btn_h = 24.0;
+            let slider_row_h = 48.0;
+            let slider_top = panel_y + 130.0;
+
+            // Puyo colors (focus index 0)
+            let row1_y = slider_top + slider_row_h * 0.5;
+            self.draw_focus_marker(slider_label_x - 22.0, row1_y, focused_index == 0);
+            self.draw_text_anchored(
+                "Puyo colors",
+                slider_label_x,
+                row1_y,
+                14,
+                focus_color(focused_index == 0),
+                TextAlign::Left,
+            );
+            self.draw_panel_slider(
+                slider_bar_x,
+                row1_y,
+                slider_bar_w,
+                puyo_colors as f32,
+                3.0,
+                5.0,
+                focused_index == 0,
+            );
+            self.draw_text_anchored(
+                &format!("{}", puyo_colors),
+                slider_value_x,
+                row1_y,
+                14,
+                WHITE,
+                TextAlign::Left,
+            );
+
+            // BGM volume + Test/Stop (focus index 1 / 3)
+            let row2_y = slider_top + slider_row_h * 1.5;
+            self.draw_focus_marker(slider_label_x - 22.0, row2_y, focused_index == 1);
+            self.draw_text_anchored(
+                "BGM volume",
+                slider_label_x,
+                row2_y,
+                14,
+                focus_color(focused_index == 1),
+                TextAlign::Left,
+            );
+            self.draw_panel_slider(
+                slider_bar_x,
+                row2_y,
+                slider_bar_w,
+                bgm_volume,
+                0.0,
+                1.0,
+                focused_index == 1,
+            );
+            self.draw_text_anchored(
+                &format!("{:.2}", bgm_volume),
+                slider_value_x,
+                row2_y,
+                14,
+                WHITE,
+                TextAlign::Left,
+            );
+            let test_btn_rect = Rect::new(
+                test_btn_x,
+                row2_y - test_btn_h / 2.0,
+                test_btn_w,
+                test_btn_h,
+            );
+            let test_label = if bgm_playing { "Stop" } else { "Test" };
+            self.draw_panel_button(test_btn_rect, test_label, 12, focused_index == 2);
+
+            // SE volume (focus index 3)
+            let row3_y = slider_top + slider_row_h * 2.5;
+            self.draw_focus_marker(slider_label_x - 22.0, row3_y, focused_index == 3);
+            self.draw_text_anchored(
+                "SE volume",
+                slider_label_x,
+                row3_y,
+                14,
+                focus_color(focused_index == 3),
+                TextAlign::Left,
+            );
+            self.draw_panel_slider(
+                slider_bar_x,
+                row3_y,
+                slider_bar_w,
+                se_volume,
+                0.0,
+                1.0,
+                focused_index == 3,
+            );
+            self.draw_text_anchored(
+                &format!("{:.2}", se_volume),
+                slider_value_x,
+                row3_y,
+                14,
+                WHITE,
+                TextAlign::Left,
+            );
+            // SE Test ボタン (focus index 4)
+            let se_test_rect = Rect::new(
+                test_btn_x,
+                row3_y - test_btn_h / 2.0,
+                test_btn_w,
+                test_btn_h,
+            );
+            self.draw_panel_button(se_test_rect, "Test", 12, focused_index == 4);
+
+            // Credits link (focus index 5)
+            let credits_y = slider_top + slider_row_h * 3.5;
+            self.draw_panel_link("Credits", panel_cx, credits_y, 14, focused_index == 5);
+
+            // Back button (focus index 6)
+            let close_btn_w = 140.0;
+            let close_btn_h = 32.0;
+            let close_rect = Rect::new(
+                panel_cx - close_btn_w / 2.0,
+                panel_y + panel_h - 60.0,
+                close_btn_w,
+                close_btn_h,
+            );
+            self.draw_panel_button(close_rect, "Back", 14, focused_index == 6);
+        }
+    }
+
+    // ===== UI プリミティブ (pure draw) =====
+
+    /// 指定位置にテキストを描画 (alignment 指定可)
+    fn draw_text_anchored(
+        &self,
+        text: &str,
+        x: f32,
+        y_center: f32,
+        font_size: u16,
+        color: Color,
+        align: TextAlign,
+    ) {
+        let dim = measure_text(text, Some(&self.font), font_size, 1.0);
+        let draw_x = match align {
+            TextAlign::Left => x,
+            TextAlign::Center => x - dim.width / 2.0,
+        };
+        draw_text_ex(
+            text,
+            draw_x,
+            y_center + dim.height / 2.0,
+            TextParams {
+                font: Some(&self.font),
+                font_size,
+                color,
+                ..Default::default()
+            },
+        );
+    }
+
+    /// 左側に focus マーカーを描画
+    fn draw_focus_marker(&self, x: f32, y_center: f32, focused: bool) {
+        if focused {
+            // ASCII '>' は label と同じ baseline で揃う
+            self.draw_text_anchored(">", x, y_center, 16, YELLOW, TextAlign::Left);
+        }
+    }
+
+    /// スライダー描画 (input 処理なし)
+    fn draw_panel_slider(
+        &self,
+        x: f32,
+        y_center: f32,
+        width: f32,
+        value: f32,
+        min: f32,
+        max: f32,
+        focused: bool,
+    ) {
+        let bar_h = 6.0;
+        let knob_r = 8.0;
+        let bar_y = y_center - bar_h / 2.0;
+
+        // バー背景
+        draw_rectangle(x, bar_y, width, bar_h, Color::new(0.3, 0.3, 0.3, 1.0));
+        // 進捗
+        let t = ((value - min) / (max - min)).clamp(0.0, 1.0);
+        let fill_w = width * t;
+        let fill_color = if focused {
+            Color::new(0.9, 0.9, 0.5, 1.0)
+        } else {
+            Color::new(0.7, 0.7, 0.85, 1.0)
+        };
+        draw_rectangle(x, bar_y, fill_w, bar_h, fill_color);
+        // ノブ
+        let knob_x = x + fill_w;
+        let knob_color = if focused {
+            Color::new(1.0, 1.0, 0.6, 1.0)
+        } else {
+            Color::new(0.9, 0.9, 0.9, 1.0)
+        };
+        draw_circle(knob_x, y_center, knob_r, knob_color);
+    }
+
+    /// ボタン描画 (input 処理なし)
+    fn draw_panel_button(&self, rect: Rect, label: &str, font_size: u16, focused: bool) {
+        let bg = if focused {
+            Color::new(0.4, 0.35, 0.15, 1.0)
+        } else {
+            Color::new(0.2, 0.2, 0.25, 1.0)
+        };
+        let border = if focused {
+            YELLOW
+        } else {
+            Color::new(0.5, 0.5, 0.5, 1.0)
+        };
+        let border_w = if focused { 2.0 } else { 1.5 };
+        draw_rectangle(rect.x, rect.y, rect.w, rect.h, bg);
+        draw_rectangle_lines(rect.x, rect.y, rect.w, rect.h, border_w, border);
+        self.draw_text_anchored(
+            label,
+            rect.x + rect.w / 2.0,
+            rect.y + rect.h / 2.0,
+            font_size,
+            WHITE,
+            TextAlign::Center,
+        );
+    }
+
+    /// テキストリンク描画 (input 処理なし)
+    fn draw_panel_link(&self, text: &str, cx: f32, cy: f32, font_size: u16, focused: bool) {
+        let dim = measure_text(text, Some(&self.font), font_size, 1.0);
+        let color = if focused {
+            YELLOW
+        } else {
+            Color::new(0.65, 0.65, 0.65, 1.0)
+        };
+        self.draw_text_anchored(text, cx, cy, font_size, color, TextAlign::Center);
+        let underline_x = cx - dim.width / 2.0;
+        draw_line(
+            underline_x,
+            cy + dim.height / 2.0 + 2.0,
+            underline_x + dim.width,
+            cy + dim.height / 2.0 + 2.0,
+            1.0,
+            color,
+        );
     }
 }
 
-/// 設定画面から発生したイベント
-#[derive(Default)]
-pub struct SettingsResult {
-    pub close: bool,
-    pub test_se: bool,
+/// focus 状態に応じたテキスト色
+fn focus_color(focused: bool) -> Color {
+    if focused { YELLOW } else { WHITE }
+}
+
+/// テキストの水平アラインメント
+enum TextAlign {
+    Left,
+    Center,
 }

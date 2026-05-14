@@ -1,7 +1,7 @@
 use crate::audio::Audio;
 use crate::game::{COLS, GameEvent, GameField, PlayContext, ROWS};
 use crate::render::{NextPuyo, Renderer};
-use crate::settings::Settings;
+use crate::settings::{Settings, SettingsEvent, SettingsInput};
 use macroquad::prelude::*;
 
 pub enum Screen {
@@ -30,7 +30,6 @@ impl Controller {
         let renderer = Renderer::new(window_width, window_height, COLS, ROWS).await;
         let audio = Audio::new().await;
         let settings = Settings::load();
-        audio.start_bgm(settings.bgm_volume);
         Controller {
             screen: Screen::new(),
             renderer,
@@ -53,6 +52,7 @@ impl Controller {
 
     fn update_title(&mut self) {
         self.renderer.draw_press_start();
+        self.audio.set_bgm(false, self.settings.bgm_volume);
         if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::Space) {
             self.screen = Screen::Playing(GameField::new(self.settings.puyo_colors));
             self.ctx = PlayContext::new();
@@ -63,26 +63,58 @@ impl Controller {
     }
 
     fn update_settings(&mut self) {
-        let result = self.renderer.draw_settings(
-            &mut self.settings.puyo_colors,
-            &mut self.settings.bgm_volume,
-            &mut self.settings.se_volume,
-            &mut self.settings.showing_credits,
+        // キーボード状態を抽象入力にまとめる (widget の意味は知らない)
+        let input = SettingsInput {
+            navigate_prev: is_key_pressed(KeyCode::Up),
+            navigate_next: is_key_pressed(KeyCode::Down),
+            left_pressed: is_key_pressed(KeyCode::Left),
+            left_held: is_key_down(KeyCode::Left),
+            right_pressed: is_key_pressed(KeyCode::Right),
+            right_held: is_key_down(KeyCode::Right),
+            activate: is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::Space),
+        };
+
+        // Settings に入力を渡し、副作用イベントを受け取る
+        match self.settings.handle_input(input) {
+            Some(SettingsEvent::TestSe) => {
+                self.audio.play_puyo(self.settings.se_volume);
+            }
+            Some(SettingsEvent::Close) => {
+                self.close_settings();
+                return;
+            }
+            None => {}
+        }
+
+        // ESC はどの状態でも閉じる
+        if is_key_pressed(KeyCode::Escape) {
+            self.close_settings();
+            return;
+        }
+
+        // 描画 + BGM 状態反映
+        self.renderer.draw_settings(
+            self.settings.puyo_colors,
+            self.settings.bgm_volume,
+            self.settings.se_volume,
+            self.settings.showing_credits,
+            self.settings.test_bgm_active,
+            self.settings.focused_index,
         );
-        // BGM 音量を反映
-        self.audio.set_bgm_volume(self.settings.bgm_volume);
-        // SE 調整完了時にテスト音を鳴らす
-        if result.test_se {
-            self.audio.play_puyo(self.settings.se_volume);
-        }
-        if result.close || is_key_pressed(KeyCode::Escape) {
-            self.settings.save();
-            self.screen = Screen::Title;
-        }
+        self.audio
+            .set_bgm(self.settings.test_bgm_active, self.settings.bgm_volume);
+    }
+
+    fn close_settings(&mut self) {
+        self.settings.reset_ui_state();
+        self.audio.set_bgm(false, self.settings.bgm_volume);
+        self.settings.save();
+        self.screen = Screen::Title;
     }
 
     fn update_game_over(&mut self) {
         self.renderer.draw_game_over();
+        self.audio.set_bgm(false, self.settings.bgm_volume);
         if is_key_pressed(KeyCode::Escape) {
             self.screen = Screen::Title;
         }
@@ -90,6 +122,7 @@ impl Controller {
 
     fn update_playing(&mut self) {
         let now = get_time();
+        self.audio.set_bgm(true, self.settings.bgm_volume);
 
         let Screen::Playing(field) = &mut self.screen else {
             return;
