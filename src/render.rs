@@ -63,6 +63,35 @@ const CRED_CAT_COLOR: Color = Color::new(0.6, 0.6, 0.6, 1.0);
 // ヒント文字色
 const HINT_COLOR: Color = Color::new(1.0, 1.0, 1.0, 0.5);
 
+// ===== テキスト共通 =====
+// 縁取り 8 方向の単位オフセット（実際の太さは draw_outlined_text の引数で乗算）
+const OUTLINE_OFFSETS: [(f32, f32); 8] = [
+    (-1.0, 0.0),
+    (1.0, 0.0),
+    (0.0, -1.0),
+    (0.0, 1.0),
+    (-1.0, -1.0),
+    (1.0, -1.0),
+    (-1.0, 1.0),
+    (1.0, 1.0),
+];
+const TEXT_HIGHLIGHT_COLOR: Color = Color::new(1.0, 0.95, 0.2, 1.0); // 強調黄色（score, chain）
+const TEXT_OUTLINE_COLOR: Color = Color::new(0.0, 0.0, 0.0, 1.0);
+
+// ===== Score 表示 =====
+const SCORE_FONT: u16 = 36;
+const SCORE_OUTLINE: f32 = 2.0;
+
+// ===== 連鎖数エフェクト =====
+const CHAIN_DURATION: f64 = 1.2; // 表示の総時間（秒）
+const CHAIN_FONT: u16 = 56; // ベースフォントサイズ（scale が掛かる）
+const CHAIN_OUTLINE: f32 = 3.0;
+const CHAIN_SCALE_PEAK: f32 = 1.2; // ポップ時のオーバーシュート倍率
+const CHAIN_POP_END: f32 = 0.15; // progress: 0 → SCALE_PEAK
+const CHAIN_SETTLE_END: f32 = 0.25; // progress: SCALE_PEAK → 1.0
+const CHAIN_FADE_START: f32 = 0.7; // progress: ここから alpha フェード開始
+const CHAIN_FLOAT_DR: f32 = 0.6; // 全体を通して上にフロートする量（セル単位）
+
 pub struct NextPuyo {
     pub axis: Puyo,
     pub child: Puyo,
@@ -92,6 +121,13 @@ impl NextAnim {
     }
 }
 
+struct ChainEffect {
+    count: u32,
+    col: f32,
+    row: f32,
+    start_time: f64,
+}
+
 pub struct Renderer {
     textures: HashMap<Puyo, Texture2D>,
     background: Texture2D,
@@ -107,6 +143,7 @@ pub struct Renderer {
     field_x: f32,
     field_y: f32,
     next_anim: NextAnim,
+    chain_effect: Option<ChainEffect>,
 }
 
 impl Renderer {
@@ -164,6 +201,7 @@ impl Renderer {
             field_x,
             field_y,
             next_anim: NextAnim::new(),
+            chain_effect: None,
         }
     }
 
@@ -445,54 +483,112 @@ impl Renderer {
         draw_circle(x, y, r, color);
     }
 
-    pub fn draw_score(&self, score: u32) {
-        let text = format!("{score:08}");
-        let font_size = 36.0;
-        let field_w = PUYO_SIZE * self.cols as f32;
-        let dims = measure_text(&text, Some(&self.font), font_size as u16, 1.0);
-        let field_h = PUYO_SIZE * self.rows as f32;
-        let padding = FIELD_PADDING;
-        let field_bottom = self.field_y + field_h;
-        let bg_bottom = field_bottom + padding * 3.0;
-        let x = self.field_x + field_w / 2.0 - dims.width / 2.0;
-        let y = (field_bottom + bg_bottom) / 2.0 + dims.height / 3.0;
-
-        // 縁取り（8方向にずらして黒で描画）
-        let outline = 2.0;
-        for (dx, dy) in [
-            (-outline, 0.0),
-            (outline, 0.0),
-            (0.0, -outline),
-            (0.0, outline),
-            (-outline, -outline),
-            (outline, -outline),
-            (-outline, outline),
-            (outline, outline),
-        ] {
+    /// 縁取り付きでテキストを描画。outline は縁の太さ（ピクセル）。
+    fn draw_outlined_text(
+        &self,
+        text: &str,
+        x: f32,
+        y: f32,
+        font_size: u16,
+        color: Color,
+        outline_color: Color,
+        outline: f32,
+    ) {
+        for (dx, dy) in OUTLINE_OFFSETS {
             draw_text_ex(
-                &text,
-                x + dx,
-                y + dy,
+                text,
+                x + dx * outline,
+                y + dy * outline,
                 TextParams {
                     font: Some(&self.font),
-                    font_size: font_size as u16,
-                    color: Color::new(0.0, 0.0, 0.0, 1.0),
+                    font_size,
+                    color: outline_color,
                     ..Default::default()
                 },
             );
         }
-
-        // 本体（黄色）
         draw_text_ex(
-            &text,
+            text,
             x,
             y,
             TextParams {
                 font: Some(&self.font),
-                font_size: font_size as u16,
-                color: Color::new(1.0, 1.0, 0.3, 1.0),
+                font_size,
+                color,
                 ..Default::default()
             },
+        );
+    }
+
+    /// 連鎖エフェクトを開始（消えたぷよの重心 col/row は visible grid 座標）。
+    /// 既存のエフェクトがあれば上書きする。
+    pub fn start_chain_effect(&mut self, count: u32, col: f32, row: f32) {
+        self.chain_effect = Some(ChainEffect {
+            count,
+            col,
+            row,
+            start_time: get_time(),
+        });
+    }
+
+    /// 連鎖エフェクトを描画（active かつ寿命内のときのみ）。
+    pub fn draw_chain_effect(&mut self) {
+        let Some(eff) = &self.chain_effect else {
+            return;
+        };
+        let progress = ((get_time() - eff.start_time) / CHAIN_DURATION) as f32;
+        if progress >= 1.0 {
+            self.chain_effect = None;
+            return;
+        }
+
+        // scale: 0..POP_END で 0→PEAK、POP_END..SETTLE_END で PEAK→1.0、以降 1.0
+        let scale = if progress < CHAIN_POP_END {
+            (progress / CHAIN_POP_END) * CHAIN_SCALE_PEAK
+        } else if progress < CHAIN_SETTLE_END {
+            let t = (progress - CHAIN_POP_END) / (CHAIN_SETTLE_END - CHAIN_POP_END);
+            CHAIN_SCALE_PEAK - t * (CHAIN_SCALE_PEAK - 1.0)
+        } else {
+            1.0
+        };
+        let alpha = if progress < CHAIN_FADE_START {
+            1.0
+        } else {
+            (1.0 - (progress - CHAIN_FADE_START) / (1.0 - CHAIN_FADE_START)).max(0.0)
+        };
+        let float_dr = -progress * CHAIN_FLOAT_DR;
+
+        let text = format!("{}れんさ", eff.count);
+        let font_size = ((CHAIN_FONT as f32) * scale).max(1.0) as u16;
+        let dims = measure_text(&text, Some(&self.font), font_size, 1.0);
+        let cx = self.field_x + (eff.col + 0.5) * PUYO_SIZE;
+        let cy = self.field_y + (eff.row + 0.5 + float_dr) * PUYO_SIZE;
+        let x = cx - dims.width / 2.0;
+        let y = cy + dims.height / 3.0;
+
+        let body = Color { a: alpha, ..TEXT_HIGHLIGHT_COLOR };
+        let outline = Color { a: alpha, ..TEXT_OUTLINE_COLOR };
+        self.draw_outlined_text(&text, x, y, font_size, body, outline, CHAIN_OUTLINE);
+    }
+
+    pub fn draw_score(&self, score: u32) {
+        let text = format!("{score:08}");
+        let field_w = PUYO_SIZE * self.cols as f32;
+        let dims = measure_text(&text, Some(&self.font), SCORE_FONT, 1.0);
+        let field_h = PUYO_SIZE * self.rows as f32;
+        let field_bottom = self.field_y + field_h;
+        let bg_bottom = field_bottom + FIELD_PADDING * 3.0;
+        let x = self.field_x + field_w / 2.0 - dims.width / 2.0;
+        let y = (field_bottom + bg_bottom) / 2.0 + dims.height / 3.0;
+
+        self.draw_outlined_text(
+            &text,
+            x,
+            y,
+            SCORE_FONT,
+            TEXT_HIGHLIGHT_COLOR,
+            TEXT_OUTLINE_COLOR,
+            SCORE_OUTLINE,
         );
     }
 

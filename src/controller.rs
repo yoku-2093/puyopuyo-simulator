@@ -135,7 +135,10 @@ impl Controller {
         for event in field.drain_events() {
             match event {
                 GameEvent::PuyoLanded => self.audio.play_puyo(self.settings.se_volume),
-                GameEvent::ChainPop => self.audio.play_pop(self.settings.se_volume),
+                GameEvent::ChainPop { count, col, row } => {
+                    self.audio.play_pop(self.settings.se_volume);
+                    self.renderer.start_chain_effect(count, col, row);
+                }
                 GameEvent::GameOver => self.audio.play_game_over(self.settings.se_volume),
             }
         }
@@ -184,5 +187,6 @@ impl Controller {
         );
         self.renderer.draw_next_area();
         self.renderer.draw_score(field.score());
+        self.renderer.draw_chain_effect();
     }
 }

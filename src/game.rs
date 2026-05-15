@@ -61,8 +61,13 @@ impl PuyoPuyo {
 /// ゲーム中に発生するイベント（コントローラーが取り出して処理する）
 pub enum GameEvent {
     PuyoLanded, // ぷよが設置された
-    ChainPop,   // 連鎖が発生した（1 連鎖につき 1 回）
-    GameOver,   // ゲームオーバーになった
+    /// 連鎖が発生した（1 連鎖につき 1 回）。col/row は消えたぷよの重心 (visible grid)。
+    ChainPop {
+        count: u32,
+        col: f32,
+        row: f32,
+    },
+    GameOver, // ゲームオーバーになった
 }
 
 /// PuyoPuyo を生成するファクトリ
@@ -643,7 +648,19 @@ impl GameField {
                 ctx.play_state = PlayState::Landed;
             } else {
                 self.add_chain_score(&groups);
-                self.events.push(GameEvent::ChainPop);
+                // 消えたぷよ全体の重心を計算してイベントに載せる
+                let cells = groups.iter().flat_map(|(_, c)| c.iter().copied());
+                let (mut sum_c, mut sum_r, mut n) = (0.0f32, 0.0f32, 0u32);
+                for (c, r) in cells {
+                    sum_c += c as f32;
+                    sum_r += r as f32;
+                    n += 1;
+                }
+                self.events.push(GameEvent::ChainPop {
+                    count: self.chain_count,
+                    col: sum_c / n as f32,
+                    row: sum_r / n as f32,
+                });
                 ctx.play_state = PlayState::Blinking;
             }
         }
