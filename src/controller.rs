@@ -76,10 +76,12 @@ impl Controller {
     /// 新しいゲームを開始する。`seed = None` なら新規 seed 生成、`Some` なら指定 seed で再現プレイ。
     fn start_game(&mut self, seed: Option<u64>) {
         let seed = seed.unwrap_or_else(|| {
-            // OS のエントロピー源 (/dev/urandom, BCryptGenRandom, Web Crypto API) から取得
-            let mut buf = [0u8; 8];
-            getrandom::getrandom(&mut buf).expect("getrandom failed");
-            u64::from_le_bytes(buf)
+            // get_time() (起動からの経過時間) を xorshift で混ぜる。
+            // ユーザーが Enter を押す瞬間のタイミングがシードになるので毎回異なる。
+            let t = (get_time() * 1_000_000_000.0) as u64;
+            let s = t ^ t.wrapping_shl(13);
+            let s = s ^ s.wrapping_shr(7);
+            s ^ s.wrapping_shl(17)
         });
         self.last_seed = Some(seed);
         self.screen = Screen::Playing(GameField::new(self.settings.puyo_colors, seed));
@@ -306,3 +308,4 @@ impl Controller {
         renderer.draw_chain_effect();
     }
 }
+
