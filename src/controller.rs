@@ -76,8 +76,10 @@ impl Controller {
     /// 新しいゲームを開始する。`seed = None` なら新規 seed 生成、`Some` なら指定 seed で再現プレイ。
     fn start_game(&mut self, seed: Option<u64>) {
         let seed = seed.unwrap_or_else(|| {
-            // u32 を 2 回叩いて u64 を作る
-            ((rand::rand() as u64) << 32) | (rand::rand() as u64)
+            // OS のエントロピー源 (/dev/urandom, BCryptGenRandom, Web Crypto API) から取得
+            let mut buf = [0u8; 8];
+            getrandom::getrandom(&mut buf).expect("getrandom failed");
+            u64::from_le_bytes(buf)
         });
         self.last_seed = Some(seed);
         self.screen = Screen::Playing(GameField::new(self.settings.puyo_colors, seed));
