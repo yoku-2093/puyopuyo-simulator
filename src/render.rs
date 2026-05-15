@@ -91,8 +91,8 @@ const MENU_NORMAL_COLOR: Color = Color::new(1.0, 1.0, 1.0, 0.9);
 
 // ===== 連鎖数エフェクト =====
 const CHAIN_DURATION: f64 = 1.2; // 表示の総時間（秒）
-const CHAIN_FONT: u16 = 56; // ベースフォントサイズ（scale が掛かる）
-const CHAIN_OUTLINE: f32 = 3.0;
+const CHAIN_FONT: u16 = 28; // ベースフォントサイズ（scale が掛かる）
+const CHAIN_OUTLINE: f32 = 2.0;
 const CHAIN_SCALE_PEAK: f32 = 1.2; // ポップ時のオーバーシュート倍率
 const CHAIN_POP_END: f32 = 0.15; // progress: 0 → SCALE_PEAK
 const CHAIN_SETTLE_END: f32 = 0.25; // progress: SCALE_PEAK → 1.0
