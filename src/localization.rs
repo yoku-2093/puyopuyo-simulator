@@ -53,16 +53,24 @@ pub struct Strings {
 
     // Settings 画面
     pub settings_title: &'static str,
-    pub settings_hint_nav: &'static str,
-    pub settings_hint_select: &'static str,
     pub settings_puyo_colors: &'static str,
     pub settings_bgm_volume: &'static str,
     pub settings_se_volume: &'static str,
     pub settings_language: &'static str,
     pub settings_credits: &'static str,
     pub settings_back: &'static str,
-    pub settings_test: &'static str,
-    pub settings_stop: &'static str,
+
+    // Settings 画面のヒントパーツ (組み合わせて 2 行のヒントを作る)
+    pub hint_navigate: &'static str,    // "Navigate: ↑/↓"
+    pub hint_adjust: &'static str,      // "Adjust: ←/→"
+    pub hint_back: &'static str,        // "Back: Esc"
+    pub hint_enter_kw: &'static str,    // "Enter / Space" (verb の後ろにつける)
+    pub action_test_bgm: &'static str,  // "Test BGM"
+    pub action_stop_bgm: &'static str,  // "Stop BGM"
+    pub action_test_se: &'static str,   // "Test SE"
+    pub action_choose_language: &'static str,
+    pub action_show_credits: &'static str,
+    pub action_close: &'static str,
 
     // Credits 画面
     pub credits_title: &'static str,
@@ -87,16 +95,23 @@ const EN: Strings = Strings {
     menu_hint_gameover: "\u{2191}/\u{2193} Select   Enter/Space Confirm   Esc Title",
 
     settings_title: "Settings",
-    settings_hint_nav: "Navigate: \u{2191} / \u{2193}    Adjust: \u{2190} / \u{2192}",
-    settings_hint_select: "Select: Enter / Space    Back: Esc",
     settings_puyo_colors: "Puyo colors",
     settings_bgm_volume: "BGM volume",
     settings_se_volume: "SE volume",
     settings_language: "Language",
     settings_credits: "Credits",
     settings_back: "Back",
-    settings_test: "Test",
-    settings_stop: "Stop",
+
+    hint_navigate: "Navigate: \u{2191} / \u{2193}",
+    hint_adjust: "Adjust: \u{2190} / \u{2192}",
+    hint_back: "Back: Esc",
+    hint_enter_kw: "Enter / Space",
+    action_test_bgm: "Test BGM",
+    action_stop_bgm: "Stop BGM",
+    action_test_se: "Test SE",
+    action_choose_language: "Choose Language",
+    action_show_credits: "Show Credits",
+    action_close: "Close",
 
     credits_title: "Credits",
     credits_bgm_label: "BGM",
@@ -120,16 +135,23 @@ const JA: Strings = Strings {
     menu_hint_gameover: "\u{2191}/\u{2193} 選択   Enter/Space 決定   Esc タイトル",
 
     settings_title: "設定",
-    settings_hint_nav: "選択: \u{2191} / \u{2193}    調整: \u{2190} / \u{2192}",
-    settings_hint_select: "決定: Enter / Space    戻る: Esc",
     settings_puyo_colors: "ぷよの色数",
     settings_bgm_volume: "BGM 音量",
     settings_se_volume: "効果音 音量",
     settings_language: "言語",
     settings_credits: "クレジット",
     settings_back: "戻る",
-    settings_test: "再生",
-    settings_stop: "停止",
+
+    hint_navigate: "移動: \u{2191} / \u{2193}",
+    hint_adjust: "調整: \u{2190} / \u{2192}",
+    hint_back: "戻る: Esc",
+    hint_enter_kw: "Enter / Space",
+    action_test_bgm: "BGM 再生",
+    action_stop_bgm: "BGM 停止",
+    action_test_se: "効果音 再生",
+    action_choose_language: "言語を選ぶ",
+    action_show_credits: "クレジットを開く",
+    action_close: "閉じる",
 
     credits_title: "クレジット",
     credits_bgm_label: "BGM",

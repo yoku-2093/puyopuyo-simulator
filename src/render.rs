@@ -37,12 +37,6 @@ const SLIDER_VALUE_DX: f32 = 355.0;
 const FOCUS_MARKER_GAP: f32 = 22.0; // ラベルの左に置く focus marker のオフセット
 const VALUE_FONT: u16 = 14;
 
-// Test ボタン (BGM/SE 共通、スライダー右隣)
-const TEST_BTN_DX: f32 = 400.0;
-const TEST_BTN_W: f32 = 60.0;
-const TEST_BTN_H: f32 = 24.0;
-const TEST_BTN_FONT: u16 = 12;
-
 // Back ボタン (Settings 画面下部)
 const BACK_BTN_W: f32 = 140.0;
 const BACK_BTN_H: f32 = 32.0;
@@ -62,7 +56,7 @@ const CRED_VAL_FONT: u16 = 14;
 const CRED_CAT_COLOR: Color = Color::new(0.6, 0.6, 0.6, 1.0);
 
 // ヒント文字色
-const HINT_COLOR: Color = Color::new(1.0, 1.0, 1.0, 0.5);
+const HINT_COLOR: Color = Color::new(1.0, 1.0, 1.0, 0.65);
 
 // ===== テキスト共通 =====
 // 縁取り 8 方向の単位オフセット（実際の太さは draw_outlined_text の引数で乗算）
@@ -82,17 +76,6 @@ const TEXT_OUTLINE_COLOR: Color = Color::new(0.0, 0.0, 0.0, 1.0);
 // ===== Score 表示 =====
 const SCORE_FONT: u16 = 36;
 const SCORE_OUTLINE: f32 = 2.0;
-
-// ===== 言語ピッカー (Settings 内のサブモーダル) =====
-const LP_W: f32 = 280.0;
-const LP_H: f32 = 200.0;
-const LP_TITLE_DY: f32 = 36.0;
-const LP_OPT_TOP_DY: f32 = 80.0;
-const LP_OPT_GAP: f32 = 38.0;
-const LP_HINT_DY: f32 = 168.0;
-const LP_OPT_FONT: u16 = 18;
-const LP_HINT_FONT: u16 = 11;
-const LP_OVERLAY_ALPHA: f32 = 0.55;
 
 // ===== Pause / GameOver 共通メニュー =====
 const MENU_OVERLAY_ALPHA: f32 = 0.6;
@@ -301,8 +284,8 @@ impl Renderer {
         let dimensions = measure_text(text, Some(&self.font), font_size as u16, 1.0);
         draw_text_ex(
             text,
-            center_x - dimensions.width / 2.0,
-            center_y + dimensions.height / 2.0,
+            (center_x - dimensions.width / 2.0).round(),
+            (center_y + dimensions.height / 2.0).round(),
             params,
         );
     }
@@ -325,11 +308,10 @@ impl Renderer {
             0.0,
         );
         // 操作方法
-        let hint = Color::new(1.0, 1.0, 1.0, 0.5);
-        self.draw_centered_text(s.title_hint_move, 13.0, hint, 60.0);
-        self.draw_centered_text(s.title_hint_softdrop, 13.0, hint, 80.0);
-        self.draw_centered_text(s.title_hint_rotate_left, 13.0, hint, 100.0);
-        self.draw_centered_text(s.title_hint_rotate_right, 13.0, hint, 120.0);
+        self.draw_centered_text(s.title_hint_move, 13.0, HINT_COLOR, 60.0);
+        self.draw_centered_text(s.title_hint_softdrop, 13.0, HINT_COLOR, 80.0);
+        self.draw_centered_text(s.title_hint_rotate_left, 13.0, HINT_COLOR, 100.0);
+        self.draw_centered_text(s.title_hint_rotate_right, 13.0, HINT_COLOR, 120.0);
     }
 
     /// Pause / GameOver 共通: フィールドに半透明の暗幕を被せる
@@ -685,8 +667,14 @@ impl Renderer {
         let x = cx - dims.width / 2.0;
         let y = cy + dims.height / 3.0;
 
-        let body = Color { a: alpha, ..TEXT_HIGHLIGHT_COLOR };
-        let outline = Color { a: alpha, ..TEXT_OUTLINE_COLOR };
+        let body = Color {
+            a: alpha,
+            ..TEXT_HIGHLIGHT_COLOR
+        };
+        let outline = Color {
+            a: alpha,
+            ..TEXT_OUTLINE_COLOR
+        };
         self.draw_outlined_text(&text, x, y, font_size, body, outline, CHAIN_OUTLINE);
     }
 
@@ -800,8 +788,12 @@ impl Renderer {
                 WHITE,
                 TextAlign::Center,
             );
+            // ピッカー用ヒント (Navigate + Enter)
             self.draw_text_anchored(
-                s.settings_hint_select,
+                &format!(
+                    "{}    {}: {}",
+                    s.hint_navigate, s.action_close, s.hint_enter_kw
+                ),
                 panel_cx,
                 panel_y + HINT_LINE2_DY,
                 HINT_FONT,
@@ -818,14 +810,7 @@ impl Renderer {
                 let color = if focused { TEXT_HIGHLIGHT_COLOR } else { WHITE };
                 let dim = measure_text(label, Some(&self.font), VALUE_FONT, 1.0);
                 let label_x = panel_cx - dim.width / 2.0;
-                self.draw_text_anchored(
-                    label,
-                    panel_cx,
-                    y,
-                    VALUE_FONT,
-                    color,
-                    TextAlign::Center,
-                );
+                self.draw_text_anchored(label, panel_cx, y, VALUE_FONT, color, TextAlign::Center);
                 if focused {
                     self.draw_text_anchored(
                         ">",
@@ -848,9 +833,33 @@ impl Renderer {
                 TextAlign::Center,
             );
 
-            // ナビゲーションヒント (タイトル画面と同じトーンで)
+            // 動的ヒント: focus に応じて Adjust / Action 部分を出し分ける
+            let action_label = match focused_index {
+                1 => Some(if bgm_playing {
+                    s.action_stop_bgm
+                } else {
+                    s.action_test_bgm
+                }),
+                2 => Some(s.action_test_se),
+                3 => Some(s.action_choose_language),
+                4 => Some(s.action_show_credits),
+                5 => Some(s.action_close),
+                _ => None, // Puyo colors は Enter で何もしない
+            };
+            let adjustable = matches!(focused_index, 0 | 1 | 2);
+
+            let line1 = if adjustable {
+                format!("{}    {}", s.hint_navigate, s.hint_adjust)
+            } else {
+                s.hint_navigate.to_string()
+            };
+            let line2 = if let Some(action) = action_label {
+                format!("{}: {}    {}", action, s.hint_enter_kw, s.hint_back)
+            } else {
+                s.hint_back.to_string()
+            };
             self.draw_text_anchored(
-                s.settings_hint_nav,
+                &line1,
                 panel_cx,
                 panel_y + HINT_LINE1_DY,
                 HINT_FONT,
@@ -858,7 +867,7 @@ impl Renderer {
                 TextAlign::Center,
             );
             self.draw_text_anchored(
-                s.settings_hint_select,
+                &line2,
                 panel_cx,
                 panel_y + HINT_LINE2_DY,
                 HINT_FONT,
@@ -869,7 +878,6 @@ impl Renderer {
             let slider_label_x = panel_x + SLIDER_LABEL_DX;
             let slider_bar_x = panel_x + SLIDER_BAR_DX;
             let slider_value_x = panel_x + SLIDER_VALUE_DX;
-            let test_btn_x = panel_x + TEST_BTN_DX;
             let slider_top = panel_y + SLIDER_TOP_DY;
             let focus_marker_x = slider_label_x - FOCUS_MARKER_GAP;
             let row_y = |i: usize| slider_top + SLIDER_ROW_H * (i as f32 + 0.5);
@@ -903,7 +911,7 @@ impl Renderer {
                 TextAlign::Left,
             );
 
-            // BGM volume (focus index 1) + Test/Stop (focus index 2)
+            // BGM volume (focus index 1) - Enter で BGM テスト toggle (hint で示す)
             let y1 = row_y(1);
             self.draw_focus_marker(focus_marker_x, y1, focused_index == 1);
             self.draw_text_anchored(
@@ -931,25 +939,16 @@ impl Renderer {
                 WHITE,
                 TextAlign::Left,
             );
-            let bgm_test_rect =
-                Rect::new(test_btn_x, y1 - TEST_BTN_H / 2.0, TEST_BTN_W, TEST_BTN_H);
-            let bgm_test_label = if bgm_playing { s.settings_stop } else { s.settings_test };
-            self.draw_panel_button(
-                bgm_test_rect,
-                bgm_test_label,
-                TEST_BTN_FONT,
-                focused_index == 2,
-            );
 
-            // SE volume (focus index 3) + Test (focus index 4)
+            // SE volume (focus index 2) - Enter で SE 1 回再生
             let y2 = row_y(2);
-            self.draw_focus_marker(focus_marker_x, y2, focused_index == 3);
+            self.draw_focus_marker(focus_marker_x, y2, focused_index == 2);
             self.draw_text_anchored(
                 s.settings_se_volume,
                 slider_label_x,
                 y2,
                 VALUE_FONT,
-                focus_color(focused_index == 3),
+                focus_color(focused_index == 2),
                 TextAlign::Left,
             );
             self.draw_panel_slider(
@@ -959,7 +958,7 @@ impl Renderer {
                 se_volume,
                 0.0,
                 1.0,
-                focused_index == 3,
+                focused_index == 2,
             );
             self.draw_text_anchored(
                 &format!("{:.2}", se_volume),
@@ -969,21 +968,18 @@ impl Renderer {
                 WHITE,
                 TextAlign::Left,
             );
-            let se_test_rect = Rect::new(test_btn_x, y2 - TEST_BTN_H / 2.0, TEST_BTN_W, TEST_BTN_H);
-            self.draw_panel_button(se_test_rect, s.settings_test, TEST_BTN_FONT, focused_index == 4);
 
-            // Language (focus index 5) - 選択式 (Enter でピッカーを開く)
+            // Language (focus index 3) - 選択式 (Enter でピッカーを開く)
             let y3 = row_y(3);
-            self.draw_focus_marker(focus_marker_x, y3, focused_index == 5);
+            self.draw_focus_marker(focus_marker_x, y3, focused_index == 3);
             self.draw_text_anchored(
                 s.settings_language,
                 slider_label_x,
                 y3,
                 VALUE_FONT,
-                focus_color(focused_index == 5),
+                focus_color(focused_index == 3),
                 TextAlign::Left,
             );
-            // 値はラベルの右〜パネル右端の間 (旧 slider 領域) の中央に置く
             let lang_value_x = (slider_bar_x + slider_value_x) / 2.0;
             self.draw_text_anchored(
                 self.lang.display_name(),
@@ -994,94 +990,25 @@ impl Renderer {
                 TextAlign::Center,
             );
 
-            // Credits link (focus index 6)
+            // Credits link (focus index 4)
             let credits_y = row_y(4);
             self.draw_panel_link(
                 s.settings_credits,
                 panel_cx,
                 credits_y,
                 VALUE_FONT,
-                focused_index == 6,
+                focused_index == 4,
             );
 
-            // Back button (focus index 7)
+            // Back button (focus index 5)
             let close_rect = Rect::new(
                 panel_cx - BACK_BTN_W / 2.0,
                 panel_y + PANEL_H - BACK_BTN_BOTTOM_GAP,
                 BACK_BTN_W,
                 BACK_BTN_H,
             );
-            self.draw_panel_button(close_rect, s.settings_back, VALUE_FONT, focused_index == 7);
+            self.draw_panel_button(close_rect, s.settings_back, VALUE_FONT, focused_index == 5);
         }
-
-        // 言語ピッカー (Settings 内のサブモーダル) - 最後に重ね描き
-        if showing_language_picker {
-            self.draw_language_picker(lang_picker_index);
-        }
-    }
-
-    /// 言語選択モーダル。English / 日本語 を縦に並べて 1 行ずつ focus marker を出す。
-    fn draw_language_picker(&self, selected: usize) {
-        // パネル全体に追加の暗幕
-        draw_rectangle(
-            0.0,
-            0.0,
-            self.window_width,
-            self.window_height,
-            Color::new(0.0, 0.0, 0.0, LP_OVERLAY_ALPHA),
-        );
-
-        let lp_x = (self.window_width - LP_W) / 2.0;
-        let lp_y = (self.window_height - LP_H) / 2.0;
-        let lp_cx = lp_x + LP_W / 2.0;
-        draw_rectangle(lp_x, lp_y, LP_W, LP_H, PANEL_BG);
-        draw_rectangle_lines(lp_x, lp_y, LP_W, LP_H, PANEL_BORDER, WHITE);
-
-        let s = self.s();
-        self.draw_text_anchored(
-            s.settings_language,
-            lp_cx,
-            lp_y + LP_TITLE_DY,
-            PANEL_TITLE_FONT,
-            WHITE,
-            TextAlign::Center,
-        );
-
-        for (i, label) in ["English", "日本語"].iter().enumerate() {
-            let y = lp_y + LP_OPT_TOP_DY + (i as f32) * LP_OPT_GAP;
-            let focused = i == selected;
-            let color = if focused {
-                TEXT_HIGHLIGHT_COLOR
-            } else {
-                MENU_NORMAL_COLOR
-            };
-            let dim = measure_text(label, Some(&self.font), LP_OPT_FONT, 1.0);
-            let label_x = lp_cx - dim.width / 2.0;
-            self.draw_text_anchored(label, lp_cx, y, LP_OPT_FONT, color, TextAlign::Center);
-            if focused {
-                draw_text_ex(
-                    ">",
-                    label_x - MENU_FOCUS_MARKER_GAP,
-                    y + dim.height / 2.0,
-                    TextParams {
-                        font: Some(&self.font),
-                        font_size: LP_OPT_FONT,
-                        color: TEXT_HIGHLIGHT_COLOR,
-                        ..Default::default()
-                    },
-                );
-            }
-        }
-
-        // ピッカー独自のヒント (簡素に)
-        self.draw_text_anchored(
-            "\u{2191}/\u{2193}    Enter / Space",
-            lp_cx,
-            lp_y + LP_HINT_DY,
-            LP_HINT_FONT,
-            HINT_COLOR,
-            TextAlign::Center,
-        );
     }
 
     // ===== UI プリミティブ (pure draw) =====
@@ -1103,8 +1030,8 @@ impl Renderer {
         };
         draw_text_ex(
             text,
-            draw_x,
-            y_center + dim.height / 2.0,
+            draw_x.round(),
+            (y_center + dim.height / 2.0).round(),
             TextParams {
                 font: Some(&self.font),
                 font_size,

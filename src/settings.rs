@@ -92,13 +92,15 @@ impl Settings {
             return None;
         }
 
-        const WIDGET_COUNT: usize = 8;
+        const WIDGET_COUNT: usize = 6;
         const VOLUME_STEP: f32 = 0.005;
         if input.navigate_prev {
             self.focused_index = (self.focused_index + WIDGET_COUNT - 1) % WIDGET_COUNT;
+            self.test_bgm_active = false; // 別 widget へ移動したら BGM テストは止める
         }
         if input.navigate_next {
             self.focused_index = (self.focused_index + 1) % WIDGET_COUNT;
+            self.test_bgm_active = false;
         }
 
         match self.focused_index {
@@ -112,36 +114,30 @@ impl Settings {
                 }
             }
             1 => {
-                // BGM volume (連続: 押しっぱで増減)
+                // BGM volume: 連続調整 + Enter で BGM テスト toggle
                 if input.right_held {
                     self.bgm_volume = (self.bgm_volume + VOLUME_STEP).min(1.0);
                 }
                 if input.left_held {
                     self.bgm_volume = (self.bgm_volume - VOLUME_STEP).max(0.0);
                 }
-            }
-            2 => {
-                // Test/Stop BGM toggle
                 if input.activate {
                     self.test_bgm_active = !self.test_bgm_active;
                 }
             }
-            3 => {
-                // SE volume (連続)
+            2 => {
+                // SE volume: 連続調整 + Enter で SE 1 回再生
                 if input.right_held {
                     self.se_volume = (self.se_volume + VOLUME_STEP).min(1.0);
                 }
                 if input.left_held {
                     self.se_volume = (self.se_volume - VOLUME_STEP).max(0.0);
                 }
-            }
-            4 => {
-                // Test SE button
                 if input.activate {
                     return Some(SettingsEvent::TestSe);
                 }
             }
-            5 => {
+            3 => {
                 // Language: Enter/Space でピッカーを開く
                 if input.activate {
                     self.lang_picker_index = match self.lang {
@@ -151,14 +147,14 @@ impl Settings {
                     self.showing_language_picker = true;
                 }
             }
-            6 => {
+            4 => {
                 // Credits link
                 if input.activate {
                     self.showing_credits = true;
                     self.focused_index = 0;
                 }
             }
-            7 => {
+            5 => {
                 // Back
                 if input.activate {
                     return Some(SettingsEvent::Close);
