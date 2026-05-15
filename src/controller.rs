@@ -49,7 +49,9 @@ impl Controller {
     }
 
     pub fn step(&mut self) {
-        // Settings 画面で言語を切り替えた瞬間から反映されるよう、毎フレーム同期
+        // 毎フレーム、現在のウィンドウサイズと言語を Renderer に反映
+        self.renderer
+            .update_window_size(screen_width(), screen_height());
         self.renderer.set_lang(self.settings.lang);
         self.renderer.draw_background();
         self.renderer.draw_field();

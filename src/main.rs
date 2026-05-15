@@ -30,7 +30,7 @@ fn window_conf() -> Conf {
         window_title: "PuyoPuyo Simulator".to_string(),
         window_width: WINDOW_WIDTH as i32,
         window_height: WINDOW_HEIGHT as i32,
-        window_resizable: false,
+        window_resizable: true,
         high_dpi: true,
         ..Default::default()
     }

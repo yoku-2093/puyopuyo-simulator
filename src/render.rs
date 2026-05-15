@@ -219,6 +219,15 @@ impl Renderer {
         self.lang = lang;
     }
 
+    /// 現在のウィンドウサイズに合わせてレイアウトを更新する。
+    /// 毎フレーム呼ばれる前提。フィールドを画面中央に配置する。
+    pub fn update_window_size(&mut self, width: f32, height: f32) {
+        self.window_width = width;
+        self.window_height = height;
+        self.field_x = (width - PUYO_SIZE * self.cols as f32) / 2.0;
+        self.field_y = (height - PUYO_SIZE * self.rows as f32) / 2.0;
+    }
+
     fn s(&self) -> &'static Strings {
         localization::strings(self.lang)
     }
