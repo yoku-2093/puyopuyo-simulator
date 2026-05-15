@@ -1,6 +1,7 @@
 mod audio;
 mod controller;
 mod game;
+mod localization;
 mod render;
 mod settings;
 mod types;

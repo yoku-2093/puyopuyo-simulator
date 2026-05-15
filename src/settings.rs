@@ -1,15 +1,21 @@
+use crate::localization::Lang;
+
 const KEY_PUYO_COLORS: &str = "puyo_colors";
 const KEY_BGM_VOLUME: &str = "bgm_volume";
 const KEY_SE_VOLUME: &str = "se_volume";
+const KEY_LANG: &str = "lang";
 
 /// ゲーム設定
 pub struct Settings {
     pub puyo_colors: usize,      // 出現するぷよの色数（3〜5）
     pub bgm_volume: f32,         // BGM 音量（0.0〜1.0）
     pub se_volume: f32,          // 効果音音量（0.0〜1.0）
+    pub lang: Lang,              // 表示言語
     pub showing_credits: bool,   // クレジット表示中か（永続化しない）
     pub test_bgm_active: bool,   // 設定画面で BGM テスト中か（永続化しない）
     pub focused_index: usize,    // 設定画面の focus 位置（永続化しない）
+    pub showing_language_picker: bool,
+    pub lang_picker_index: usize, // 言語ピッカー内の選択 (0=En, 1=Ja)
 }
 
 impl Settings {
@@ -28,14 +34,21 @@ impl Settings {
             .get(KEY_SE_VOLUME)
             .and_then(|s| s.parse().ok())
             .unwrap_or(0.5);
+        let lang = storage
+            .get(KEY_LANG)
+            .and_then(|s| Lang::from_id(&s))
+            .unwrap_or(Lang::En);
 
         Settings {
             puyo_colors,
             bgm_volume,
             se_volume,
+            lang,
             showing_credits: false,
             test_bgm_active: false,
             focused_index: 0,
+            showing_language_picker: false,
+            lang_picker_index: 0,
         }
     }
 
@@ -45,6 +58,7 @@ impl Settings {
         storage.set(KEY_PUYO_COLORS, &self.puyo_colors.to_string());
         storage.set(KEY_BGM_VOLUME, &self.bgm_volume.to_string());
         storage.set(KEY_SE_VOLUME, &self.se_volume.to_string());
+        storage.set(KEY_LANG, self.lang.id());
     }
 
     /// 設定画面の入力ハンドラ。
@@ -58,7 +72,27 @@ impl Settings {
             return None;
         }
 
-        const WIDGET_COUNT: usize = 7;
+        if self.showing_language_picker {
+            // Up/Down/Left/Right どれでも 2 択トグル
+            if input.navigate_prev
+                || input.navigate_next
+                || input.left_pressed
+                || input.right_pressed
+            {
+                self.lang_picker_index = 1 - self.lang_picker_index;
+            }
+            if input.activate {
+                self.lang = if self.lang_picker_index == 0 {
+                    Lang::En
+                } else {
+                    Lang::Ja
+                };
+                self.showing_language_picker = false;
+            }
+            return None;
+        }
+
+        const WIDGET_COUNT: usize = 8;
         const VOLUME_STEP: f32 = 0.005;
         if input.navigate_prev {
             self.focused_index = (self.focused_index + WIDGET_COUNT - 1) % WIDGET_COUNT;
@@ -108,13 +142,23 @@ impl Settings {
                 }
             }
             5 => {
+                // Language: Enter/Space でピッカーを開く
+                if input.activate {
+                    self.lang_picker_index = match self.lang {
+                        Lang::En => 0,
+                        Lang::Ja => 1,
+                    };
+                    self.showing_language_picker = true;
+                }
+            }
+            6 => {
                 // Credits link
                 if input.activate {
                     self.showing_credits = true;
                     self.focused_index = 0;
                 }
             }
-            6 => {
+            7 => {
                 // Back
                 if input.activate {
                     return Some(SettingsEvent::Close);
@@ -129,6 +173,7 @@ impl Settings {
     pub fn reset_ui_state(&mut self) {
         self.test_bgm_active = false;
         self.showing_credits = false;
+        self.showing_language_picker = false;
         self.focused_index = 0;
     }
 }

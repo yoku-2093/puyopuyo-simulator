@@ -49,6 +49,8 @@ impl Controller {
     }
 
     pub fn step(&mut self) {
+        // Settings 画面で言語を切り替えた瞬間から反映されるよう、毎フレーム同期
+        self.renderer.set_lang(self.settings.lang);
         self.renderer.draw_background();
         self.renderer.draw_field();
         match &self.screen {
@@ -83,7 +85,6 @@ impl Controller {
     }
 
     fn update_settings(&mut self) {
-        // キーボード状態を抽象入力にまとめる (widget の意味は知らない)
         let input = SettingsInput {
             navigate_prev: is_key_pressed(KeyCode::Up),
             navigate_next: is_key_pressed(KeyCode::Down),
@@ -94,7 +95,6 @@ impl Controller {
             activate: is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::Space),
         };
 
-        // Settings に入力を渡し、副作用イベントを受け取る
         match self.settings.handle_input(input) {
             Some(SettingsEvent::TestSe) => {
                 self.audio.play_puyo(self.settings.se_volume);
@@ -106,13 +106,12 @@ impl Controller {
             None => {}
         }
 
-        // ESC はどの状態でも閉じる
+        // ESC はどの状態でも Settings 自体を閉じる
         if is_key_pressed(KeyCode::Escape) {
             self.close_settings();
             return;
         }
 
-        // 描画 + BGM 状態反映
         self.renderer.draw_settings(
             self.settings.puyo_colors,
             self.settings.bgm_volume,
@@ -120,6 +119,8 @@ impl Controller {
             self.settings.showing_credits,
             self.settings.test_bgm_active,
             self.settings.focused_index,
+            self.settings.showing_language_picker,
+            self.settings.lang_picker_index,
         );
         self.audio
             .set_bgm(self.settings.test_bgm_active, self.settings.bgm_volume);
