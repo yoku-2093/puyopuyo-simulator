@@ -64,7 +64,7 @@ impl Controller {
 
     fn update_title(&mut self) {
         self.renderer.draw_press_start();
-        self.audio.set_bgm(false, self.settings.bgm_volume);
+        self.audio.set_bgm_state(false, self.settings.bgm_volume);
         if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::Space) {
             self.start_game(None);
         } else if is_key_pressed(KeyCode::S) {
@@ -99,7 +99,7 @@ impl Controller {
 
         match self.settings.handle_input(input) {
             Some(SettingsEvent::TestSe) => {
-                self.audio.play_puyo(self.settings.se_volume);
+                self.audio.play_se_test_sound(self.settings.se_volume);
             }
             Some(SettingsEvent::Close) => {
                 self.close_settings();
@@ -125,12 +125,12 @@ impl Controller {
             self.settings.lang_picker_index,
         );
         self.audio
-            .set_bgm(self.settings.test_bgm_active, self.settings.bgm_volume);
+            .set_bgm_state(self.settings.test_bgm_active, self.settings.bgm_volume);
     }
 
     fn close_settings(&mut self) {
         self.settings.reset_ui_state();
-        self.audio.set_bgm(false, self.settings.bgm_volume);
+        self.audio.set_bgm_state(false, self.settings.bgm_volume);
         self.settings.save();
         self.screen = Screen::Title;
     }
@@ -150,7 +150,7 @@ impl Controller {
             _ => return,
         };
 
-        self.audio.set_bgm(false, self.settings.bgm_volume);
+        self.audio.set_bgm_state(false, self.settings.bgm_volume);
         self.renderer.draw_game_over(focused_index);
 
         // Esc は仕様としてタイトル直行（既存挙動を維持）
@@ -170,7 +170,7 @@ impl Controller {
 
     fn update_playing(&mut self) {
         let now = get_time();
-        self.audio.set_bgm(true, self.settings.bgm_volume);
+        self.audio.set_bgm_state(true, self.settings.bgm_volume);
 
         let Screen::Playing(field) = &mut self.screen else {
             return;
@@ -182,12 +182,12 @@ impl Controller {
         // ゲームから発生したイベントを処理
         for event in field.drain_events() {
             match event {
-                GameEvent::PuyoLanded => self.audio.play_puyo(self.settings.se_volume),
+                GameEvent::PuyoLanded => self.audio.play_landed_sound(self.settings.se_volume),
                 GameEvent::ChainPop { count, col, row } => {
-                    self.audio.play_pop(self.settings.se_volume);
+                    self.audio.play_popped_sound(self.settings.se_volume);
                     self.renderer.start_chain_effect(count, col, row);
                 }
-                GameEvent::GameOver => self.audio.play_game_over(self.settings.se_volume),
+                GameEvent::GameOver => self.audio.play_game_over_sound(self.settings.se_volume),
             }
         }
 
@@ -240,7 +240,7 @@ impl Controller {
         };
 
         // BGM は止めておく（プレイ中の没入を切るため）
-        self.audio.set_bgm(false, self.settings.bgm_volume);
+        self.audio.set_bgm_state(false, self.settings.bgm_volume);
 
         // 凍結したゲーム状態を背景として描画
         let now = get_time();

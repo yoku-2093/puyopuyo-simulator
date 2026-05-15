@@ -3,12 +3,12 @@ use macroquad::audio::{
 };
 use macroquad::experimental::coroutines::{start_coroutine, wait_seconds};
 
-const POP_DELAY: f32 = 0.1; // 連鎖確定からポップ音再生までの遅延（秒）
+const POPPED_DELAY: f32 = 0.1; // 連鎖確定からポップ音再生までの遅延（秒）
 
 pub struct Audio {
     bgm: Sound,
-    puyo_se: Sound,
-    pop_se: Sound,
+    landed_se: Sound,
+    popped_se: Sound,
     game_over_se: Sound,
     bgm_playing: bool,
 }
@@ -16,13 +16,13 @@ pub struct Audio {
 impl Audio {
     pub async fn new() -> Self {
         let bgm = load_sound("assets/audio/bgm.ogg").await.unwrap();
-        let puyo_se = load_sound("assets/audio/puyo.ogg").await.unwrap();
-        let pop_se = load_sound("assets/audio/pop.ogg").await.unwrap();
+        let landed_se = load_sound("assets/audio/puyo_landed.ogg").await.unwrap();
+        let popped_se = load_sound("assets/audio/puyo_popped.ogg").await.unwrap();
         let game_over_se = load_sound("assets/audio/game_over.ogg").await.unwrap();
         Audio {
             bgm,
-            puyo_se,
-            pop_se,
+            landed_se,
+            popped_se,
             game_over_se,
             bgm_playing: false,
         }
@@ -30,7 +30,7 @@ impl Audio {
 
     /// BGM の desired state を宣言的に設定する。
     /// 既に同じ状態なら音量だけ反映、状態が変わるなら start/stop する。
-    pub fn set_bgm(&mut self, playing: bool, volume: f32) {
+    pub fn set_bgm_state(&mut self, playing: bool, volume: f32) {
         match (self.bgm_playing, playing) {
             (false, true) => {
                 play_sound(
@@ -53,19 +53,24 @@ impl Audio {
         }
     }
 
-    pub fn play_puyo(&self, volume: f32) {
-        play_one_shot(&self.puyo_se, volume);
+    pub fn play_landed_sound(&self, volume: f32) {
+        play_one_shot(&self.landed_se, volume);
     }
 
-    pub fn play_pop(&self, volume: f32) {
-        let sound = self.pop_se.clone();
+    pub fn play_popped_sound(&self, volume: f32) {
+        let sound = self.popped_se.clone();
         start_coroutine(async move {
-            wait_seconds(POP_DELAY).await;
+            wait_seconds(POPPED_DELAY).await;
             play_one_shot(&sound, volume);
         });
     }
 
-    pub fn play_game_over(&self, volume: f32) {
+    /// 設定画面の SE テスト用。遅延なしで popped 音を一度鳴らす。
+    pub fn play_se_test_sound(&self, volume: f32) {
+        play_one_shot(&self.popped_se, volume);
+    }
+
+    pub fn play_game_over_sound(&self, volume: f32) {
         play_one_shot(&self.game_over_se, volume);
     }
 }
