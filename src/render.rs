@@ -82,6 +82,18 @@ const TEXT_OUTLINE_COLOR: Color = Color::new(0.0, 0.0, 0.0, 1.0);
 const SCORE_FONT: u16 = 36;
 const SCORE_OUTLINE: f32 = 2.0;
 
+// ===== Pause / GameOver 共通メニュー =====
+const MENU_OVERLAY_ALPHA: f32 = 0.6;
+const MENU_TITLE_DY: f32 = -160.0; // フィールド中央からのオフセット
+const MENU_TITLE_FONT: u16 = 48;
+const MENU_FIRST_ITEM_DY: f32 = -40.0;
+const MENU_ITEM_FONT: u16 = 22;
+const MENU_ITEM_GAP: f32 = 40.0;
+const MENU_HINT_DY: f32 = 200.0;
+const MENU_HINT_FONT: u16 = 13;
+const MENU_FOCUS_MARKER_GAP: f32 = 22.0; // ラベル左端から marker 中心までの距離
+const MENU_NORMAL_COLOR: Color = Color::new(1.0, 1.0, 1.0, 0.9);
+
 // ===== 連鎖数エフェクト =====
 const CHAIN_DURATION: f64 = 1.2; // 表示の総時間（秒）
 const CHAIN_FONT: u16 = 56; // ベースフォントサイズ（scale が掛かる）
@@ -296,27 +308,103 @@ impl Renderer {
         self.draw_centered_text("Rotate Right: X", 13.0, hint, 120.0);
     }
 
-    /// ゲームオーバー画面の描画
-    pub fn draw_game_over(&self) {
+    /// Pause / GameOver 共通: フィールドに半透明の暗幕を被せる
+    fn draw_menu_overlay(&self) {
         let field_w = PUYO_SIZE * self.cols as f32;
         let field_h = PUYO_SIZE * self.rows as f32;
-        // 半透明の暗幕
         draw_rectangle(
             self.field_x,
             self.field_y,
             field_w,
             field_h,
-            Color::new(0.0, 0.0, 0.0, 0.6),
+            Color::new(0.0, 0.0, 0.0, MENU_OVERLAY_ALPHA),
         );
-        // テクスチャをスケールアニメーションで描画
+    }
+
+    /// Pause / GameOver 共通: メニュー項目を縦に描画。フォーカス中の左に ">" を出す。
+    fn draw_menu_items(&self, items: &[&str], focused_index: usize) {
+        let field_w = PUYO_SIZE * self.cols as f32;
+        let field_h = PUYO_SIZE * self.rows as f32;
+        let center_x = self.field_x + field_w / 2.0;
+        let center_y = self.field_y + field_h / 2.0;
+
+        for (i, label) in items.iter().enumerate() {
+            let dy = MENU_FIRST_ITEM_DY + (i as f32) * MENU_ITEM_GAP;
+            let focused = i == focused_index;
+            let color = if focused {
+                TEXT_HIGHLIGHT_COLOR
+            } else {
+                MENU_NORMAL_COLOR
+            };
+            let dims = measure_text(label, Some(&self.font), MENU_ITEM_FONT, 1.0);
+            let x = center_x - dims.width / 2.0;
+            let y = center_y + dy + dims.height / 2.0;
+
+            draw_text_ex(
+                label,
+                x,
+                y,
+                TextParams {
+                    font: Some(&self.font),
+                    font_size: MENU_ITEM_FONT,
+                    color,
+                    ..Default::default()
+                },
+            );
+            if focused {
+                draw_text_ex(
+                    ">",
+                    x - MENU_FOCUS_MARKER_GAP,
+                    y,
+                    TextParams {
+                        font: Some(&self.font),
+                        font_size: MENU_ITEM_FONT,
+                        color: TEXT_HIGHLIGHT_COLOR,
+                        ..Default::default()
+                    },
+                );
+            }
+        }
+    }
+
+    fn draw_menu_hint(&self, text: &str) {
+        self.draw_centered_text(
+            text,
+            MENU_HINT_FONT as f32,
+            Color::new(1.0, 1.0, 1.0, 0.6),
+            MENU_HINT_DY,
+        );
+    }
+
+    /// ポーズ画面（プレイ中の Esc）
+    pub fn draw_pause_menu(&self, focused_index: usize) {
+        self.draw_menu_overlay();
+        self.draw_centered_text(
+            "PAUSE",
+            MENU_TITLE_FONT as f32,
+            TEXT_HIGHLIGHT_COLOR,
+            MENU_TITLE_DY,
+        );
+        self.draw_menu_items(
+            &["続ける", "リトライ", "同じぷよでリトライ", "タイトルに戻る"],
+            focused_index,
+        );
+        self.draw_menu_hint("\u{2191}/\u{2193} Select   Enter/Space Confirm   Esc Resume");
+    }
+
+    /// ゲームオーバー画面
+    pub fn draw_game_over(&self, focused_index: usize) {
+        self.draw_menu_overlay();
+
+        // GAME OVER 画像をタイトル位置にスケールアニメで描画
         let t = ((get_time() * 1.5).sin() * 0.5 + 0.5) as f32;
-        let scale = 0.45 + 0.1 * t; // 0.45〜0.55
+        let scale = 0.30 + 0.05 * t; // メニュー追加に伴い縮小
         let tex_w = self.game_over_text.width() * scale;
         let tex_h = self.game_over_text.height() * scale;
-        let field_w2 = PUYO_SIZE * self.cols as f32;
-        let field_h2 = PUYO_SIZE * self.rows as f32;
-        let cx = self.field_x + field_w2 / 2.0 - tex_w / 2.0;
-        let cy = self.field_y + field_h2 / 2.0 - tex_h / 2.0;
+        let field_w = PUYO_SIZE * self.cols as f32;
+        let field_h = PUYO_SIZE * self.rows as f32;
+        let cx = self.field_x + field_w / 2.0 - tex_w / 2.0;
+        let cy = self.field_y + field_h / 2.0 + MENU_TITLE_DY - tex_h / 2.0;
         draw_texture_ex(
             &self.game_over_text,
             cx,
@@ -327,12 +415,12 @@ impl Renderer {
                 ..Default::default()
             },
         );
-        self.draw_centered_text(
-            "Press ESC to return",
-            16.0,
-            Color::new(1.0, 1.0, 1.0, 0.8),
-            80.0,
+
+        self.draw_menu_items(
+            &["リトライ", "同じぷよでリトライ", "タイトルに戻る"],
+            focused_index,
         );
+        self.draw_menu_hint("\u{2191}/\u{2193} Select   Enter/Space Confirm   Esc Title");
     }
 
     pub fn draw_puyo(&self, puyo: Puyo, col: f32, row: f32, scale_x: f32, scale_y: f32) {

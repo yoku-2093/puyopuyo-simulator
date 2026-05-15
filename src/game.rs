@@ -70,9 +70,31 @@ pub enum GameEvent {
     GameOver, // ゲームオーバーになった
 }
 
-/// PuyoPuyo を生成するファクトリ
+/// PuyoPuyo を生成するファクトリ。seed から決定的に色選択 / 個別ぷよ生成を行う。
 pub struct PuyoPuyoFactory {
     colors: Vec<Puyo>,
+    rng: Xorshift64,
+}
+
+/// 同じ seed を渡せば同じ列を再現できるための小さな xorshift PRNG。
+struct Xorshift64(u64);
+
+impl Xorshift64 {
+    fn new(seed: u64) -> Self {
+        // 0 は xorshift で永久 0 になるので避ける
+        Xorshift64(seed.max(1))
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+
+    fn gen_range(&mut self, max: usize) -> usize {
+        (self.next_u64() as usize) % max
+    }
 }
 
 impl PuyoPuyoFactory {
@@ -84,20 +106,21 @@ impl PuyoPuyoFactory {
         Puyo::Purple,
     ];
 
-    pub fn new(num_colors: usize) -> Self {
-        // ALL_COLORS から num_colors 個をランダムに選ぶ（Fisher-Yates シャッフル）
+    pub fn new(num_colors: usize, seed: u64) -> Self {
+        let mut rng = Xorshift64::new(seed);
+        // ALL_COLORS から num_colors 個を選ぶ（Fisher-Yates）
         let mut colors = Self::ALL_COLORS.to_vec();
         for i in (1..colors.len()).rev() {
-            let j = rand::gen_range(0, i + 1);
+            let j = rng.gen_range(i + 1);
             colors.swap(i, j);
         }
         colors.truncate(num_colors);
-        PuyoPuyoFactory { colors }
+        PuyoPuyoFactory { colors, rng }
     }
 
-    pub fn create(&self) -> PuyoPuyo {
-        let axis = self.colors[rand::gen_range(0, self.colors.len())];
-        let child = self.colors[rand::gen_range(0, self.colors.len())];
+    pub fn create(&mut self) -> PuyoPuyo {
+        let axis = self.colors[self.rng.gen_range(self.colors.len())];
+        let child = self.colors[self.rng.gen_range(self.colors.len())];
         PuyoPuyo {
             axis,
             child,
@@ -391,8 +414,8 @@ impl PlayContext {
 // --- GameField: 生成・公開API ---
 
 impl GameField {
-    pub fn new(num_colors: usize) -> Self {
-        let factory = PuyoPuyoFactory::new(num_colors);
+    pub fn new(num_colors: usize, seed: u64) -> Self {
+        let mut factory = PuyoPuyoFactory::new(num_colors, seed);
         GameField {
             puyopuyo: factory.create(),
             position: INITIAL_POSITION,

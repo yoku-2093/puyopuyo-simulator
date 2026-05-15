@@ -5,10 +5,16 @@ use crate::settings::{Settings, SettingsEvent, SettingsInput};
 use macroquad::prelude::*;
 
 pub enum Screen {
-    Title,              // タイトル画面
-    Playing(GameField), // プレイ中
-    GameOver,           // ゲームオーバー
-    Settings,           // 設定画面
+    Title,
+    Playing(GameField),
+    Paused {
+        field: GameField,
+        focused_index: usize,
+    },
+    GameOver {
+        focused_index: usize,
+    },
+    Settings,
 }
 
 impl Screen {
@@ -23,6 +29,8 @@ pub struct Controller {
     ctx: PlayContext,
     settings: Settings,
     audio: Audio,
+    /// 直近の seed (「同じぷよでリトライ」用)
+    last_seed: Option<u64>,
 }
 
 impl Controller {
@@ -36,6 +44,7 @@ impl Controller {
             ctx: PlayContext::new(),
             settings,
             audio,
+            last_seed: None,
         }
     }
 
@@ -45,7 +54,8 @@ impl Controller {
         match &self.screen {
             Screen::Title => self.update_title(),
             Screen::Playing(_) => self.update_playing(),
-            Screen::GameOver => self.update_game_over(),
+            Screen::Paused { .. } => self.update_paused(),
+            Screen::GameOver { .. } => self.update_game_over(),
             Screen::Settings => self.update_settings(),
         }
     }
@@ -54,12 +64,22 @@ impl Controller {
         self.renderer.draw_press_start();
         self.audio.set_bgm(false, self.settings.bgm_volume);
         if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::Space) {
-            self.screen = Screen::Playing(GameField::new(self.settings.puyo_colors));
-            self.ctx = PlayContext::new();
+            self.start_game(None);
         } else if is_key_pressed(KeyCode::S) {
             self.settings.showing_credits = false;
             self.screen = Screen::Settings;
         }
+    }
+
+    /// 新しいゲームを開始する。`seed = None` なら新規 seed 生成、`Some` なら指定 seed で再現プレイ。
+    fn start_game(&mut self, seed: Option<u64>) {
+        let seed = seed.unwrap_or_else(|| {
+            // u32 を 2 回叩いて u64 を作る
+            ((rand::rand() as u64) << 32) | (rand::rand() as u64)
+        });
+        self.last_seed = Some(seed);
+        self.screen = Screen::Playing(GameField::new(self.settings.puyo_colors, seed));
+        self.ctx = PlayContext::new();
     }
 
     fn update_settings(&mut self) {
@@ -113,10 +133,35 @@ impl Controller {
     }
 
     fn update_game_over(&mut self) {
-        self.renderer.draw_game_over();
+        const ITEM_COUNT: usize = 3;
+        if let Screen::GameOver { focused_index } = &mut self.screen {
+            if is_key_pressed(KeyCode::Up) {
+                *focused_index = (*focused_index + ITEM_COUNT - 1) % ITEM_COUNT;
+            }
+            if is_key_pressed(KeyCode::Down) {
+                *focused_index = (*focused_index + 1) % ITEM_COUNT;
+            }
+        }
+        let focused_index = match &self.screen {
+            Screen::GameOver { focused_index } => *focused_index,
+            _ => return,
+        };
+
         self.audio.set_bgm(false, self.settings.bgm_volume);
+        self.renderer.draw_game_over(focused_index);
+
+        // Esc は仕様としてタイトル直行（既存挙動を維持）
         if is_key_pressed(KeyCode::Escape) {
             self.screen = Screen::Title;
+            return;
+        }
+        if is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::Space) {
+            match focused_index {
+                0 => self.start_game(None),
+                1 => self.start_game(self.last_seed),
+                2 => self.screen = Screen::Title,
+                _ => {}
+            }
         }
     }
 
@@ -144,27 +189,95 @@ impl Controller {
         }
 
         if field.is_game_over() {
-            self.screen = Screen::GameOver;
+            self.screen = Screen::GameOver { focused_index: 0 };
             return;
         }
 
         if is_key_pressed(KeyCode::Escape) {
-            self.screen = Screen::Title;
+            self.pause_game();
             return;
         }
 
         self.draw_playing();
     }
 
+    /// Playing から Pause に遷移（GameField を保持したまま）
+    fn pause_game(&mut self) {
+        let prev = std::mem::replace(&mut self.screen, Screen::Title);
+        if let Screen::Playing(field) = prev {
+            self.screen = Screen::Paused {
+                field,
+                focused_index: 0,
+            };
+        }
+    }
+
+    /// Pause から Playing に戻す
+    fn resume_game(&mut self) {
+        let prev = std::mem::replace(&mut self.screen, Screen::Title);
+        if let Screen::Paused { field, .. } = prev {
+            self.screen = Screen::Playing(field);
+        }
+    }
+
+    fn update_paused(&mut self) {
+        const ITEM_COUNT: usize = 4;
+        // フォーカス更新
+        if let Screen::Paused { focused_index, .. } = &mut self.screen {
+            if is_key_pressed(KeyCode::Up) {
+                *focused_index = (*focused_index + ITEM_COUNT - 1) % ITEM_COUNT;
+            }
+            if is_key_pressed(KeyCode::Down) {
+                *focused_index = (*focused_index + 1) % ITEM_COUNT;
+            }
+        }
+        let focused_index = match &self.screen {
+            Screen::Paused { focused_index, .. } => *focused_index,
+            _ => return,
+        };
+
+        // BGM は止めておく（プレイ中の没入を切るため）
+        self.audio.set_bgm(false, self.settings.bgm_volume);
+
+        // 凍結したゲーム状態を背景として描画
+        let now = get_time();
+        if let Screen::Paused { field, .. } = &self.screen {
+            Self::draw_field_state(&mut self.renderer, field, &self.ctx, now);
+        }
+        self.renderer.draw_pause_menu(focused_index);
+
+        // 入力ディスパッチ
+        let activate = is_key_pressed(KeyCode::Enter) || is_key_pressed(KeyCode::Space);
+        if is_key_pressed(KeyCode::Escape) {
+            self.resume_game();
+            return;
+        }
+        if activate {
+            match focused_index {
+                0 => self.resume_game(),
+                1 => self.start_game(None),
+                2 => self.start_game(self.last_seed),
+                3 => self.screen = Screen::Title,
+                _ => {}
+            }
+        }
+    }
+
     fn draw_playing(&mut self) {
         let Screen::Playing(field) = &self.screen else {
             return;
         };
-        for dp in field.draw_list(&self.ctx, get_time()) {
+        Self::draw_field_state(&mut self.renderer, field, &self.ctx, get_time());
+    }
+
+    /// Playing / Paused 共通のフィールド描画。レンダラとフィールドを直接受け取り、
+    /// 呼び出し側の `&self.screen` 借用と衝突しないようにする。
+    fn draw_field_state(renderer: &mut Renderer, field: &GameField, ctx: &PlayContext, now: f64) {
+        for dp in field.draw_list(ctx, now) {
             if !dp.effect.visible {
                 continue;
             }
-            self.renderer.draw_puyo(
+            renderer.draw_puyo(
                 dp.puyo,
                 dp.col,
                 dp.row,
@@ -174,19 +287,19 @@ impl Controller {
         }
         for p in field.particle_list() {
             let color = Color::new(p.color.r, p.color.g, p.color.b, p.alpha());
-            self.renderer.draw_particle(p.col, p.row, p.size, color);
+            renderer.draw_particle(p.col, p.row, p.size, color);
         }
 
         let generation = field.spawn_count();
         let next = field.next();
         let nn = field.next_next();
-        self.renderer.draw_next_puyos(
+        renderer.draw_next_puyos(
             &NextPuyo::new(next.axis(), next.child()),
             &NextPuyo::new(nn.axis(), nn.child()),
             generation,
         );
-        self.renderer.draw_next_area();
-        self.renderer.draw_score(field.score());
-        self.renderer.draw_chain_effect();
+        renderer.draw_next_area();
+        renderer.draw_score(field.score());
+        renderer.draw_chain_effect();
     }
 }
