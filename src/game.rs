@@ -11,7 +11,7 @@ const MOVE_INTERVAL: f64 = 0.05;
 const MOVE_REPEAT_DELAY: f64 = 0.2; // 初回入力からリピート開始までの猶予
 const LOCK_DELAY: f64 = 0.70; // 接地から固定までの猶予
 const LOCK_DELAY_FAST: f64 = 0.18; // 下キー押下時の固定猶予
-const QUICK_TURN_WINDOW: f64 = 0.3; // 同方向 2 連打でクイックターンを発動する猶予
+const QUICK_TURN_WINDOW: f64 = 0.5; // 同方向 2 連打でクイックターンを発動する猶予
 const DROP_GRAVITY: f64 = 50.0; // ちぎり時の重力加速度（rows/s^2）
 const DROP_GRAVITY_INITIAL: f64 = 5.0; // ちぎり開始時の初速（rows/s）
 const DISPLAY_CHASE_RATE: f64 = 70.0; // 移動の表示位置追従速度
@@ -364,14 +364,14 @@ fn puyo_color(puyo: Puyo) -> Color {
 pub struct GameField {
     factory: PuyoPuyoFactory, // ぷよ生成用ファクトリ
     events: Vec<GameEvent>,   // 発生したイベント（コントローラーが drain する）
-    puyopuyo: PuyoPuyo, // 落下中のぷよ
-    position: Position, // 軸ぷよの位置
-    display_col: f64,   // 軸の表示位置（補間用）
+    puyopuyo: PuyoPuyo,       // 落下中のぷよ
+    position: Position,       // 軸ぷよの位置
+    display_col: f64,         // 軸の表示位置（補間用）
     display_row: f64,
-    display_angle: f64,    // 子ぷよの表示角度（補間用、現在の見た目）
-    rotation_target: f64,  // 子ぷよの目標角度（累積、wrap なし）
-    next: PuyoPuyo,                            // 次のぷよ
-    next_next: PuyoPuyo,                       // 次の次のぷよ
+    display_angle: f64,   // 子ぷよの表示角度（補間用、現在の見た目）
+    rotation_target: f64, // 子ぷよの目標角度（累積、wrap なし）
+    next: PuyoPuyo,       // 次のぷよ
+    next_next: PuyoPuyo,  // 次の次のぷよ
     field: [[Option<Puyo>; COLS]; TOTAL_ROWS], // フィールド（幽霊行を含む）
     is_game_over: bool,
     score: u32,                    // スコア
@@ -750,20 +750,35 @@ impl GameField {
 
     fn can_move(&self, (dc, dr): (isize, isize)) -> bool {
         let (child_dc, child_dr) = self.puyopuyo.orientation().offset();
-        let new_pos = (
+        let new_axis = (
             self.position.col as isize + dc,
             self.position.row as isize + dr,
         );
-        let new_child = (new_pos.0 + child_dc, new_pos.1 + child_dr);
-        self.can_pass(new_pos) && self.can_pass(new_child)
+        let new_child = (new_axis.0 + child_dc, new_axis.1 + child_dr);
+        self.can_pass(new_axis, new_child)
     }
 
-    fn can_pass(&self, (col, row): (isize, isize)) -> bool {
-        col >= 0
-            && col < COLS as isize
-            && row >= 0
-            && row < TOTAL_ROWS as isize
-            && self.field[row as usize][col as usize].is_none()
+    /// 軸と子の組がその位置に居られるか判定する。
+    /// - 軸 (axis): 画面内 (横+上下) かつ空きセル。
+    /// - 子 (child): 列は画面内必須。行は上端より上 (row < 0) は素通しOK
+    ///   (最上段で Up に回転した時にキックで下に押し戻されるのを防ぐため)。
+    fn can_pass(&self, axis: (isize, isize), child: (isize, isize)) -> bool {
+        let (ac, ar) = axis;
+        let (cc, cr) = child;
+        let cols = COLS as isize;
+        let total_rows = TOTAL_ROWS as isize;
+
+        let axis_ok = ac >= 0
+            && ac < cols
+            && ar >= 0
+            && ar < total_rows
+            && self.field[ar as usize][ac as usize].is_none();
+
+        let child_ok = cc >= 0
+            && cc < cols
+            && (cr < 0 || (cr < total_rows && self.field[cr as usize][cc as usize].is_none()));
+
+        axis_ok && child_ok
     }
 
     fn move_left(&mut self) {
@@ -798,39 +813,53 @@ impl GameField {
             self.puyopuyo.orientation().rotate(rotation)
         };
         let (new_dc, new_dr) = new_ori.offset();
-        // キックの例（Up → Right 時計回り回転, A=軸 C=子 X=障害物 |=壁）
-        //
-        // 1. そのまま回転OK（new_child が空き）
-        //    [C]
-        //    [A]      →  [A][C]
-        //
-        // 2. 通常キック（new_child が壁、kick_to が空き → 軸を子の反対方向に移動）
-        //    [C]|              |
-        //    [A]|     →  [A][C]|    ※ 子が元の軸位置に来る
-        //
-        // 3. 上キック（new_child も kick_to も塞がれ → 軸を1段上に移動）
-        //   |[C]          |[A][C]
-        //   |[A][X]  →   |   [X]
-        let new_child = (col + new_dc, row + new_dr);
-        let kick_to = (col - new_dc, row - new_dr);
 
-        if self.can_pass(new_child) {
-            // そのまま回転OK
-        } else if self.can_pass(kick_to) {
-            // 通常キック（軸を反対方向に）
-            self.position.col = kick_to.0 as usize;
-            self.position.row = kick_to.1 as usize;
-        } else {
-            let up_axis = (col, row - 1);
-            let up_child = (col + new_dc, row - 1 + new_dr);
-            if !self.can_pass(up_axis) || !self.can_pass(up_child) {
-                return false;
-            }
-            // 上キック（軸を1段上に）
-            self.position.row -= 1;
+        // === 1. まず直接回転を試す ===
+        // 軸位置はそのまま、子だけ新しい位置に動かす。
+        // Up に回す場合は can_pass 側で子の画面外上を許容しているため、
+        // 軸が境界内である限りここで必ず成功する。
+        if self.can_pass((col, row), (col + new_dc, row + new_dr)) {
+            self.puyopuyo.set_orientation(new_ori);
+            return true;
         }
-        self.puyopuyo.set_orientation(new_ori);
-        true
+
+        // === 2. 直接が失敗 → 向きに応じてキックを試す ===
+        //
+        // [図解]  A=軸 C=子 X=障害物 |=壁
+        //
+        //   通常キック (軸を新しい子の反対方向にずらす)
+        //      [C]|              |
+        //      [A]|     →  [A][C]|
+        //
+        //   上キック (軸を1段上にずらす)
+        //     |[C]         |[A][C]
+        //     |[A][X] →   |   [X]
+        //
+        //   斜めキック (通常 + 上 を同時に)
+        let kicks: &[(isize, isize)] = match new_ori {
+            // Up は直接が失敗するのは軸が画面最上段 (row=0) のときのみ。救済不能。
+            Orientation::Up => &[],
+            // Down は上キックでだけ救済できる。
+            Orientation::Down => &[(0, -1)],
+            // Right/Left は壁際・段差込みのケースを通常/上/斜めの3種で救う。
+            Orientation::Right | Orientation::Left => &[
+                (-new_dc, -new_dr),     // 通常キック
+                (0, -1),                // 上キック
+                (-new_dc, -new_dr - 1), // 斜めキック
+            ],
+        };
+
+        for &(axis_dc, axis_dr) in kicks {
+            let new_axis = (col + axis_dc, row + axis_dr);
+            let new_child = (new_axis.0 + new_dc, new_axis.1 + new_dr);
+            if self.can_pass(new_axis, new_child) {
+                self.position.col = new_axis.0 as usize;
+                self.position.row = new_axis.1 as usize;
+                self.puyopuyo.set_orientation(new_ori);
+                return true;
+            }
+        }
+        false
     }
 
     fn handle_move_keys(&mut self, ctx: &mut PlayContext, now: f64) {
@@ -879,14 +908,13 @@ impl GameField {
         }
     }
 
-    /// クイックターン候補位置: 縦向きで軸の両サイドが塞がれている。
+    /// クイックターン候補位置: 縦向きで左右どちらにも横移動できない。
     fn in_quick_turn_position(&self) -> bool {
-        let (col, row) = (self.position.col as isize, self.position.row as isize);
         matches!(
             self.puyopuyo.orientation(),
             Orientation::Up | Orientation::Down
-        ) && !self.can_pass((col - 1, row))
-            && !self.can_pass((col + 1, row))
+        ) && !self.can_move((-1, 0))
+            && !self.can_move((1, 0))
     }
 
     fn try_rotate(&mut self, ctx: &mut PlayContext, rotation: Rotation, now: f64) {
@@ -925,8 +953,7 @@ impl GameField {
             let rot_factor = (ROTATION_CHASE_RATE * dt).min(1.0);
             // rotation_target は単調変化する累積角度なので wrap 不要。
             // 連打でも回転方向が反転しない。
-            self.display_angle +=
-                (self.rotation_target - self.display_angle) * rot_factor;
+            self.display_angle += (self.rotation_target - self.display_angle) * rot_factor;
         }
 
         // 落下中のぷよの物理演算
@@ -981,7 +1008,7 @@ impl GameField {
     fn chain_power(chain: u32) -> u32 {
         const TABLE: [u32; 19] = [
             //  1   2   3   4   5    6    7    8    9   10
-            0,   8,  16,  32,  64,  96, 128, 160, 192, 224,
+            0, 8, 16, 32, 64, 96, 128, 160, 192, 224,
             // 11  12  13  14   15   16   17   18   19
             256, 288, 320, 352, 384, 416, 448, 480, 512,
         ];
@@ -1017,11 +1044,7 @@ impl GameField {
             .iter()
             .map(|(_, cells)| {
                 let n = cells.len();
-                if n < TABLE.len() {
-                    TABLE[n]
-                } else {
-                    10
-                }
+                if n < TABLE.len() { TABLE[n] } else { 10 }
             })
             .sum()
     }
