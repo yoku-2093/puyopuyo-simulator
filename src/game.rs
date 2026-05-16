@@ -411,6 +411,17 @@ impl PlayContext {
     }
 }
 
+pub struct GameInput {
+    pub left: bool,
+    pub right: bool,
+    pub down: bool,
+    pub left_just: bool,
+    pub right_just: bool,
+    pub down_just: bool,
+    pub rotate_right: bool,
+    pub rotate_left: bool,
+}
+
 // --- GameField: 生成・公開API ---
 
 impl GameField {
@@ -562,10 +573,10 @@ impl GameField {
 // --- GameField: tick（状態遷移） ---
 
 impl GameField {
-    pub fn tick(&mut self, ctx: &mut PlayContext, now: f64) {
+    pub fn tick(&mut self, ctx: &mut PlayContext, now: f64, input: &GameInput) {
         match ctx.play_state {
-            PlayState::Active => self.tick_active(ctx, now),
-            PlayState::Settling => self.tick_settling(ctx, now),
+            PlayState::Active => self.tick_active(ctx, now, input),
+            PlayState::Settling => self.tick_settling(ctx, now, input),
             PlayState::Dropping => self.tick_dropping(ctx, now),
             PlayState::Squashing => self.tick_squashing(ctx, now),
             PlayState::Blinking => self.tick_blinking(ctx, now),
@@ -574,26 +585,26 @@ impl GameField {
         }
     }
 
-    fn tick_active(&mut self, ctx: &mut PlayContext, now: f64) {
+    fn tick_active(&mut self, ctx: &mut PlayContext, now: f64, input: &GameInput) {
         if now - ctx.last_drop_time > DROP_INTERVAL {
             self.move_down();
             ctx.last_drop_time = now;
         }
-        self.handle_move_keys(ctx, now);
-        self.handle_rotate_keys(ctx, now);
+        self.handle_move_keys(ctx, now, input);
+        self.handle_rotate_keys(ctx, now, input);
         if self.is_grounded() {
             ctx.play_state = PlayState::Settling;
             ctx.settling_start = now;
         }
     }
 
-    fn tick_settling(&mut self, ctx: &mut PlayContext, now: f64) {
+    fn tick_settling(&mut self, ctx: &mut PlayContext, now: f64, input: &GameInput) {
         let prev_col = self.position.col;
         let prev_row = self.position.row;
         let prev_ori = self.puyopuyo.orientation();
 
-        self.handle_move_keys(ctx, now);
-        self.handle_rotate_keys(ctx, now);
+        self.handle_move_keys(ctx, now, input);
+        self.handle_rotate_keys(ctx, now, input);
 
         // 操作で位置や向きが変わったら猶予をリセット
         if self.position.col != prev_col
@@ -603,7 +614,7 @@ impl GameField {
             ctx.settling_start = now;
         }
 
-        let delay = if is_key_down(KeyCode::Down) {
+        let delay = if input.down {
             LOCK_DELAY_FAST
         } else {
             LOCK_DELAY
@@ -869,20 +880,15 @@ impl GameField {
         false
     }
 
-    fn handle_move_keys(&mut self, ctx: &mut PlayContext, now: f64) {
-        let left_held = is_key_down(KeyCode::Left);
-        let right_held = is_key_down(KeyCode::Right);
-        let down_held = is_key_down(KeyCode::Down);
-        let held = left_held || right_held || down_held;
+    fn handle_move_keys(&mut self, ctx: &mut PlayContext, now: f64, input: &GameInput) {
+        let held = input.left || input.right || input.down;
 
         if !held {
             ctx.move_repeating = false;
             return;
         }
 
-        let just_pressed = is_key_pressed(KeyCode::Left)
-            || is_key_pressed(KeyCode::Right)
-            || is_key_pressed(KeyCode::Down);
+        let just_pressed = input.left_just || input.right_just || input.down_just;
 
         let interval = if ctx.move_repeating {
             MOVE_INTERVAL
@@ -893,24 +899,24 @@ impl GameField {
             return;
         }
 
-        if left_held {
+        if input.left {
             self.move_left();
         }
-        if right_held {
+        if input.right {
             self.move_right();
         }
-        if down_held {
+        if input.down {
             self.move_down();
         }
         ctx.last_move_time = now;
         ctx.move_repeating = !just_pressed;
     }
 
-    fn handle_rotate_keys(&mut self, ctx: &mut PlayContext, now: f64) {
-        if is_key_pressed(KeyCode::X) {
+    fn handle_rotate_keys(&mut self, ctx: &mut PlayContext, now: f64, input: &GameInput) {
+        if input.rotate_right {
             self.try_rotate(ctx, Rotation::Right, now);
         }
-        if is_key_pressed(KeyCode::Z) {
+        if input.rotate_left {
             self.try_rotate(ctx, Rotation::Left, now);
         }
     }

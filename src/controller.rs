@@ -1,5 +1,5 @@
 use crate::audio::Audio;
-use crate::game::{COLS, GameEvent, GameField, PlayContext, ROWS};
+use crate::game::{COLS, GameEvent, GameField, GameInput, PlayContext, ROWS};
 use crate::render::{NextPuyo, Renderer};
 use crate::settings::{Settings, SettingsEvent, SettingsInput};
 use macroquad::prelude::*;
@@ -180,7 +180,17 @@ impl Controller {
             return;
         };
 
-        field.tick(&mut self.ctx, now);
+        let input = GameInput {
+            left: is_key_down(KeyCode::Left),
+            right: is_key_down(KeyCode::Right),
+            down: is_key_down(KeyCode::Down),
+            left_just: is_key_pressed(KeyCode::Left),
+            right_just: is_key_pressed(KeyCode::Right),
+            down_just: is_key_pressed(KeyCode::Down),
+            rotate_right: is_key_pressed(KeyCode::X),
+            rotate_left: is_key_pressed(KeyCode::Z),
+        };
+        field.tick(&mut self.ctx, now, &input);
         field.update(&mut self.ctx, now);
 
         // ゲームから発生したイベントを処理

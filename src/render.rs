@@ -352,8 +352,8 @@ impl Renderer {
                 MENU_NORMAL_COLOR
             };
             let dims = measure_text(label, Some(&self.font), MENU_ITEM_FONT, 1.0);
-            let x = center_x - dims.width / 2.0;
-            let y = center_y + dy + dims.height / 2.0;
+            let x = (center_x - dims.width / 2.0).round();
+            let y = (center_y + dy + dims.height / 2.0).round();
 
             draw_text_ex(
                 label,
@@ -817,10 +817,10 @@ impl Renderer {
                 let y = row_top + (i as f32) * SLIDER_ROW_H;
                 let focused = i == lang_picker_index;
                 let color = if focused { TEXT_HIGHLIGHT_COLOR } else { WHITE };
-                let dim = measure_text(label, Some(&self.font), VALUE_FONT, 1.0);
-                let label_x = panel_cx - dim.width / 2.0;
                 self.draw_text_anchored(label, panel_cx, y, VALUE_FONT, color, TextAlign::Center);
                 if focused {
+                    let dim = measure_text(label, Some(&self.font), VALUE_FONT, 1.0);
+                    let label_x = panel_cx - dim.width / 2.0;
                     self.draw_text_anchored(
                         ">",
                         label_x - FOCUS_MARKER_GAP,
