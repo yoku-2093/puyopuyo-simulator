@@ -836,9 +836,16 @@ impl GameField {
         //     |[A][X] →   |   [X]
         //
         //   斜めキック (通常 + 上 を同時に)
+        //        [C][X]          [A][C][X]
+        //     [X][A][X]    →    [X]   [X]
         let kicks: &[(isize, isize)] = match new_ori {
-            // Up は直接が失敗するのは軸が画面最上段 (row=0) のときのみ。救済不能。
-            Orientation::Up => &[],
+            // Up は直接回転で必ず成功する (子の画面外上を can_pass が許容し、軸の真上に
+            // 静止ぷよが浮くのは重力的に不可能なため)。よってここに来た時点で不変条件違反。
+            // 開発中はパニックで気付き、本番では黙って回転失敗にとどめる。
+            Orientation::Up => {
+                debug_assert!(false, "Up rotation must succeed via direct rotation");
+                return false;
+            }
             // Down は上キックでだけ救済できる。
             Orientation::Down => &[(0, -1)],
             // Right/Left は壁際・段差込みのケースを通常/上/斜めの3種で救う。
